@@ -1,6 +1,6 @@
 # SAFEKIDS
 
-# SafeKids-Backend
+# Backend
 
 # SafeKids — Sistema Inteligente de Monitoreo para Menores y Personas Vulnerables
 
