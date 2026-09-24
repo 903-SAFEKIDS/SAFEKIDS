@@ -1,7 +1,5 @@
 # SAFEKIDS
 
-# Backend
-
 # SafeKids — Sistema Inteligente de Monitoreo para Menores y Personas Vulnerables
 
 SafeKids es una plataforma diseñada para el monitoreo y protección de menores de edad y personas vulnerables mediante la integración de un dispositivo IoT tipo pulsera/collar, inteligencia artificial y notificaciones en tiempo real.
