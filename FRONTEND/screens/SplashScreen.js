@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
-import { Animated, Image, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { Animated, StatusBar, StyleSheet, Text, View } from 'react-native';
 import FondoApp from '../components/FondoApp';
-import GlassCard from '../components/GlassCard';
+import RadarLogo from '../components/RadarLogo';
 import { colors } from '../styles/colors';
 
 export default function SplashScreen({ navigation }) {
@@ -18,18 +18,16 @@ export default function SplashScreen({ navigation }) {
       Animated.timing(opacidadLema, { toValue: 1, duration: 500, useNativeDriver: true }),
     ]).start();
 
-    const temporizador = setTimeout(() => navigation.replace('Login'), 2600);
+    const temporizador = setTimeout(() => navigation.replace('Login'), 3200);
     return () => clearTimeout(temporizador);
   }, []);
 
   return (
-    <FondoApp colores={['#4A2760', colors.moradoProfundo, '#241030']}>
+    <FondoApp tema="oscuro">
       <StatusBar barStyle="light-content" />
       <View style={styles.centro}>
         <Animated.View style={{ opacity: opacidad, transform: [{ scale: escala }], alignItems: 'center' }}>
-          <GlassCard radius={56} intensity={35} style={styles.marco}>
-            <Image source={require('../assets/logo.png')} style={styles.logo} resizeMode="contain" />
-          </GlassCard>
+          <RadarLogo tema="oscuro" tamano={300} />
           <Text style={styles.nombre}>SafeKids</Text>
         </Animated.View>
       </View>
@@ -42,9 +40,7 @@ export default function SplashScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   centro: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  marco: { width: 190, height: 190, alignItems: 'center', justifyContent: 'center' },
-  logo: { width: 110, height: 110 },
-  nombre: { marginTop: 24, fontSize: 40, fontWeight: '700', color: colors.blanco },
+  nombre: { marginTop: 4, fontSize: 40, fontWeight: '700', color: colors.blanco },
   lema: {
     textAlign: 'center',
     marginBottom: 56,

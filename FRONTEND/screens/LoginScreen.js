@@ -1,8 +1,6 @@
 import { useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
-  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -10,13 +8,15 @@ import {
   StatusBar,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import FondoApp from '../components/FondoApp';
 import GlassCard from '../components/GlassCard';
+import RadarLogo from '../components/RadarLogo';
+import CampoGlass from '../components/CampoGlass';
+import BotonGlass from '../components/BotonGlass';
 import { colors } from '../styles/colors';
 import { iniciarSesion } from '../services/authService';
 
@@ -52,86 +52,92 @@ export default function LoginScreen({ navigation }) {
   };
 
   return (
-    <FondoApp>
-      <StatusBar barStyle="light-content" />
+    <FondoApp tema="claro">
+      <StatusBar barStyle="dark-content" />
       <SafeAreaView style={styles.area}>
         <KeyboardAvoidingView
           style={styles.area}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          <ScrollView contentContainerStyle={styles.contenido} keyboardShouldPersistTaps="handled">
-            <View style={styles.marca}>
-              <Image source={require('../assets/logo.png')} style={styles.logoChico} resizeMode="contain" />
-              <Text style={styles.marcaTexto}>SafeKids</Text>
+          <ScrollView
+            contentContainerStyle={styles.contenido}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.hero}>
+              <RadarLogo tamano={210} />
+              <Text style={styles.nombre}>SafeKids</Text>
+              <Text style={styles.lema}>Monitoreo Inteligente con IA</Text>
             </View>
 
-            <Text style={styles.titulo}>Inicio de sesión</Text>
-            <Ionicons name="person-circle" size={120} color="rgba(255,255,255,0.85)" style={styles.avatar} />
+            <GlassCard radius={34} style={styles.panel} contentStyle={styles.panelInterior}>
+              <Text style={styles.titulo}>Inicio de sesión</Text>
+              <Text style={styles.subtitulo}>Entra para ver su ubicación en tiempo real.</Text>
 
-            <Text style={styles.etiqueta}>Correo electrónico</Text>
-            <GlassCard style={styles.campo}>
-              <Ionicons name="mail-outline" size={20} color={colors.textoSuave} />
-              <TextInput
-                style={styles.input}
+              <CampoGlass
+                style={styles.campo}
+                icono="mail-outline"
+                etiqueta="Correo electrónico"
                 value={correo}
                 onChangeText={setCorreo}
                 placeholder="correo@ejemplo.com"
-                placeholderTextColor="rgba(255,255,255,0.5)"
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoCorrect={false}
-                accessibilityLabel="Correo electrónico"
               />
-            </GlassCard>
 
-            <Text style={styles.etiqueta}>Contraseña</Text>
-            <GlassCard style={styles.campo}>
-              <Ionicons name="lock-closed-outline" size={20} color={colors.textoSuave} />
-              <TextInput
-                style={styles.input}
+              <CampoGlass
+                style={styles.campo}
+                icono="lock-closed-outline"
+                etiqueta="Contraseña"
                 value={contrasena}
                 onChangeText={setContrasena}
                 placeholder="Tu contraseña"
-                placeholderTextColor="rgba(255,255,255,0.5)"
                 secureTextEntry={!verContrasena}
                 autoCapitalize="none"
-                accessibilityLabel="Contraseña"
+                derecha={
+                  <Pressable
+                    onPress={() => setVerContrasena(!verContrasena)}
+                    hitSlop={10}
+                    accessibilityLabel={verContrasena ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                  >
+                    <Ionicons
+                      name={verContrasena ? 'eye-off-outline' : 'eye-outline'}
+                      size={20}
+                      color={colors.moradoMedio}
+                    />
+                  </Pressable>
+                }
               />
+
               <Pressable
-                onPress={() => setVerContrasena(!verContrasena)}
-                hitSlop={10}
-                accessibilityLabel={verContrasena ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                style={styles.olvidoCaja}
+                onPress={() => Alert.alert('Recuperar contraseña', 'Disponible próximamente.')}
               >
-                <Ionicons name={verContrasena ? 'eye-off-outline' : 'eye-outline'} size={20} color={colors.textoSuave} />
+                <Text style={styles.olvido}>¿Olvidaste tu contraseña?</Text>
               </Pressable>
+
+              {error ? (
+                <View style={styles.errorCaja}>
+                  <Ionicons name="alert-circle" size={18} color={colors.error} />
+                  <Text style={styles.error}>{error}</Text>
+                </View>
+              ) : null}
+
+              <BotonGlass titulo="Iniciar sesión" onPress={entrar} cargando={cargando} />
+
+              <View style={styles.separador}>
+                <View style={styles.linea} />
+                <Text style={styles.separadorTexto}>o</Text>
+                <View style={styles.linea} />
+              </View>
+
+              <BotonGlass
+                variante="secundario"
+                titulo="Registrarme"
+                onPress={() => navigation.navigate('Registro')}
+              />
             </GlassCard>
-
-            <Pressable onPress={() => Alert.alert('Recuperar contraseña', 'Disponible próximamente.')}>
-              <Text style={styles.olvido}>¿Olvidaste tu contraseña?</Text>
-            </Pressable>
-
-            {error ? <Text style={styles.error}>{error}</Text> : null}
-
-            <Pressable
-              style={({ pressed }) => [styles.boton, pressed && styles.botonPresionado]}
-              onPress={entrar}
-              disabled={cargando}
-              accessibilityRole="button"
-            >
-              {cargando ? (
-                <ActivityIndicator color={colors.blanco} />
-              ) : (
-                <Text style={styles.botonTexto}>Iniciar sesión</Text>
-              )}
-            </Pressable>
-
-            <Pressable
-              style={({ pressed }) => [styles.boton, pressed && styles.botonPresionado]}
-              onPress={() => navigation.navigate('Registro')}
-              accessibilityRole="button"
-            >
-              <Text style={styles.botonTexto}>Registrarme</Text>
-            </Pressable>
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
@@ -141,25 +147,27 @@ export default function LoginScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   area: { flex: 1 },
-  contenido: { paddingHorizontal: 28, paddingBottom: 32 },
-  marca: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12 },
-  logoChico: { width: 28, height: 28, marginRight: 8 },
-  marcaTexto: { color: colors.blanco, fontSize: 18, fontWeight: '700' },
-  titulo: { marginTop: 8, textAlign: 'center', color: colors.blanco, fontSize: 24, fontWeight: '700' },
-  avatar: { alignSelf: 'center', marginVertical: 12 },
-  etiqueta: { marginTop: 14, marginBottom: 6, color: colors.blanco, fontSize: 15, fontWeight: '600' },
-  campo: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, height: 52 },
-  input: { flex: 1, marginHorizontal: 10, color: colors.blanco, fontSize: 16 },
-  olvido: { marginTop: 12, color: colors.blanco, textDecorationLine: 'underline', fontSize: 14 },
-  error: { marginTop: 14, color: colors.error, fontSize: 14, textAlign: 'center' },
-  boton: {
-    marginTop: 16,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: colors.boton,
+  contenido: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: 16, paddingBottom: 24 },
+  hero: { alignItems: 'center' },
+  nombre: { marginTop: -6, fontSize: 30, fontWeight: '800', color: colors.moradoProfundo },
+  lema: { marginTop: 2, marginBottom: 18, fontSize: 14, fontWeight: '600', color: colors.morado },
+  panel: { alignSelf: 'stretch' },
+  panelInterior: { padding: 22 },
+  titulo: { fontSize: 24, fontWeight: '800', color: colors.texto },
+  subtitulo: { marginTop: 4, marginBottom: 6, fontSize: 14, color: colors.textoSuave },
+  campo: { marginTop: 14 },
+  olvidoCaja: { alignSelf: 'flex-end', marginTop: 12, marginBottom: 18 },
+  olvido: { color: colors.boton, fontSize: 14, fontWeight: '700' },
+  errorCaja: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    marginBottom: 14,
+    padding: 10,
+    borderRadius: 12,
+    backgroundColor: 'rgba(179,38,30,0.10)',
   },
-  botonPresionado: { backgroundColor: colors.botonPresionado },
-  botonTexto: { color: colors.blanco, fontSize: 17, fontWeight: '700' },
+  error: { flex: 1, marginLeft: 8, color: colors.error, fontSize: 14, fontWeight: '600' },
+  separador: { flexDirection: 'row', alignItems: 'center', marginVertical: 14 },
+  linea: { flex: 1, height: 1, backgroundColor: 'rgba(94,51,130,0.2)' },
+  separadorTexto: { marginHorizontal: 12, color: colors.textoSuave, fontSize: 14 },
 });
