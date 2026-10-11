@@ -18,6 +18,7 @@ import RadarLogo from '../components/RadarLogo';
 import CampoGlass from '../components/CampoGlass';
 import BotonGlass from '../components/BotonGlass';
 import { colors } from '../styles/colors';
+import { registrarse } from '../services/authService';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -43,9 +44,13 @@ export default function RegistroScreen({ navigation }) {
     setError('');
     setCargando(true);
     try {
-      // TODO: llamar a authService (registrarse) cuando exista el endpoint
-      Alert.alert('Cuenta creada', 'Ya puedes iniciar sesión.');
-      navigation.goBack();
+      await registrarse({
+        nombre: nombre.trim(),
+        correo: correo.trim().toLowerCase(),
+        telefono: telefono.trim(),
+        contrasena,
+        });
+            navigation.navigate('Login');
     } catch (e) {
       setError(e.message);
     } finally {
