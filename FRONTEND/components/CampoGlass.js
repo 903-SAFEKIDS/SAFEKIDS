@@ -43,5 +43,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  input: { flex: 1, marginHorizontal: 10, color: colors.texto, fontSize: 16 },
+  input: {
+  flex: 1,
+  marginHorizontal: 10,
+  color: colors.texto,
+  fontSize: 16,
+  position: 'relative',
+  zIndex: 1,
+},
 });
