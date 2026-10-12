@@ -104,8 +104,8 @@ Notificaciones e inteligencia artificial.
 ### Sprint 3 — 30 de octubre al 19 de noviembre
 Predicción con IA e integración del dispositivo físico.
 - HU11 — Predicción de rutas con GPS desactivado
-- HU03 — Vinculación del dispositivo (se desarrolla al final del proyecto, cuando se cuente con la pulsera física)
-- HU06 — Botón de pánico (se desarrolla al final del proyecto, cuando se cuente con la pulsera física)
+- HU03 — Vinculación del dispositivo 
+- HU06 — Botón de pánico 
 
 > Las historias que dependen del hardware (HU03 y HU06) se programan al final porque la pulsera con ESP32 aún no se adquiere. Mientras tanto, la ubicación, las alertas y las predicciones se prueban con datos de ubicación simulados.
 
