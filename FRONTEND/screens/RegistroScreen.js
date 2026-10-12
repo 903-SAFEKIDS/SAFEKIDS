@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import {
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -21,6 +20,15 @@ import { colors } from '../styles/colors';
 import { registrarse } from '../services/authService';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const ESPECIAL_REGEX = /[!@#$%^&*()_+\-=[\]{};:'",.<>\/?\\|~`]/;
+
+function validarContrasena(c) {
+  if (c.length < 8) return 'La contraseña debe tener al menos 8 caracteres.';
+  if (!/[A-Z]/.test(c)) return 'La contraseña debe tener al menos una mayúscula.';
+  if (!ESPECIAL_REGEX.test(c))
+    return 'La contraseña debe tener al menos un carácter especial (por ejemplo ! @ # $ %).';
+  return '';
+}
 
 export default function RegistroScreen({ navigation }) {
   const [nombre, setNombre] = useState('');
@@ -37,8 +45,10 @@ export default function RegistroScreen({ navigation }) {
     if (!EMAIL_REGEX.test(correo.trim())) return setError('Escribe un correo válido.');
     if (telefono.replace(/\D/g, '').length < 10)
       return setError('Escribe un teléfono de 10 dígitos.');
-    if (contrasena.length < 8)
-      return setError('La contraseña debe tener al menos 8 caracteres.');
+
+    const errorContrasena = validarContrasena(contrasena);
+    if (errorContrasena) return setError(errorContrasena);
+
     if (!aceptaTerminos) return setError('Debes aceptar los términos para continuar.');
 
     setError('');
@@ -49,15 +59,16 @@ export default function RegistroScreen({ navigation }) {
         correo: correo.trim().toLowerCase(),
         telefono: telefono.trim(),
         contrasena,
-        });
-            navigation.navigate('Login');
+      });
+      navigation.navigate('Login');
     } catch (e) {
       setError(e.message);
     } finally {
       setCargando(false);
     }
   };
-    return (
+
+  return (
     <FondoApp tema="claro">
       <StatusBar barStyle="dark-content" />
       <SafeAreaView style={styles.area}>
@@ -116,7 +127,7 @@ export default function RegistroScreen({ navigation }) {
                 etiqueta="Contraseña"
                 value={contrasena}
                 onChangeText={setContrasena}
-                placeholder="Mínimo 8 caracteres"
+                placeholder="8+ caracteres, mayúscula y símbolo"
                 secureTextEntry={!verContrasena}
                 autoCapitalize="none"
                 derecha={
@@ -154,7 +165,13 @@ export default function RegistroScreen({ navigation }) {
                 </View>
               ) : null}
 
-              <BotonGlass titulo="Registrarme" onPress={registrar} cargando={cargando} />
+              {/* El botón se apaga y no responde hasta aceptar los términos */}
+              <View
+                style={{ opacity: aceptaTerminos ? 1 : 0.5 }}
+                pointerEvents={aceptaTerminos ? 'auto' : 'none'}
+              >
+                <BotonGlass titulo="Registrarme" onPress={registrar} cargando={cargando} />
+              </View>
 
               <Pressable style={styles.volver} onPress={() => navigation.goBack()}>
                 <Text style={styles.volverTexto}>¿Ya tienes cuenta? Inicia sesión</Text>
