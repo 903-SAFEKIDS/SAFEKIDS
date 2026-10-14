@@ -19,6 +19,7 @@ import BotonGlass from '../components/BotonGlass';
 import { colors } from '../styles/colors';
 import { registrarse } from '../services/authService';
 
+
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const ESPECIAL_REGEX = /[!@#$%^&*()_+\-=[\]{};:'",.<>\/?\\|~`]/;
 

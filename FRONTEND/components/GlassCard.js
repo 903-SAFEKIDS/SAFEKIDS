@@ -65,7 +65,6 @@ export default function GlassCard({
           <BlurView
             intensity={intensity}
             tint={t.tint}
-            experimentalBlurMethod={Platform.OS === 'android' ? 'dimezisBlurView' : undefined}
             style={StyleSheet.absoluteFill}
           />
         )}

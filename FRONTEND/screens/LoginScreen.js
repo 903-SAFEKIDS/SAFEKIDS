@@ -41,9 +41,9 @@ export default function LoginScreen({ navigation }) {
     setError('');
     setCargando(true);
     try {
-      const datos = await iniciarSesion(correo.trim().toLowerCase(), contrasena);
-      // TODO: guardar datos.token y navegar a la pantalla de inicio (HU04)
-      Alert.alert('Sesión iniciada', `Bienvenida, ${datos.nombre ?? ''}`);
+      await iniciarSesion(correo.trim().toLowerCase(), contrasena);
+      // TODO: guardar el token de la sesión cuando exista el backend
+      navigation.replace('Principal');
     } catch (e) {
       setError(e.message);
     } finally {
