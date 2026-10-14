@@ -20,6 +20,7 @@ import BotonGlass from '../components/BotonGlass';
 import { colors } from '../styles/colors';
 import { registrarse } from '../services/authService';
 
+
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function RegistroScreen({ navigation }) {
