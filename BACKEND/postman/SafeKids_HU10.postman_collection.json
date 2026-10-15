@@ -1,0 +1,226 @@
+{
+  "info": {
+    "name": "SafeKids - HU10 Ruta y horario",
+    "description": "Pruebas de integración de ruta habitual. Primero crea un usuario con POST /auth/registro (o usa uno existente), cambia correo/contraseña en las variables y ejecuta la colección en orden con el backend encendido.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000"
+    },
+    {
+      "key": "hijo_id",
+      "value": "hijo-1"
+    },
+    {
+      "key": "correo",
+      "value": "padre@ejemplo.com"
+    },
+    {
+      "key": "contrasena",
+      "value": "Clave123!"
+    },
+    {
+      "key": "token",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "0. Login (guarda el token)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('login 200', () => pm.response.to.have.status(200));",
+              "pm.collectionVariables.set('token', pm.response.json().token);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"correo\": \"{{correo}}\",\n  \"contrasena\": \"{{contrasena}}\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/auth/login",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "auth",
+            "login"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Guardar ruta válida (200)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('responde 200', () => pm.response.to.have.status(200));",
+              "pm.test('devuelve el hijo y los días', () => {",
+              "  const j = pm.response.json();",
+              "  pm.expect(j.hijo_id).to.eql(pm.collectionVariables.get('hijo_id'));",
+              "  pm.expect(j.dias).to.eql([0,1,2,3,4]);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"origen\": {\n    \"nombre\": \"Casa\",\n    \"lat\": 19.4326,\n    \"lng\": -99.1332\n  },\n  \"destino\": {\n    \"nombre\": \"Escuela primaria\",\n    \"lat\": 19.44,\n    \"lng\": -99.15\n  },\n  \"dias\": [\n    0,\n    1,\n    2,\n    3,\n    4\n  ],\n  \"hora_salida\": \"07:15\",\n  \"hora_llegada\": \"07:45\",\n  \"tolerancia_min\": 10\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/hijos/{{hijo_id}}/ruta-habitual",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "hijos",
+            "{{hijo_id}}",
+            "ruta-habitual"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Consultar ruta guardada (200)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('responde 200', () => pm.response.to.have.status(200));",
+              "pm.test('trae el destino', () => pm.expect(pm.response.json().destino.nombre).to.eql('Escuela primaria'));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/hijos/{{hijo_id}}/ruta-habitual",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "hijos",
+            "{{hijo_id}}",
+            "ruta-habitual"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Hora de llegada antes de la salida (422)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('rechaza con 422', () => pm.response.to.have.status(422));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"origen\": {\n    \"nombre\": \"Casa\",\n    \"lat\": 19.4326,\n    \"lng\": -99.1332\n  },\n  \"destino\": {\n    \"nombre\": \"Escuela primaria\",\n    \"lat\": 19.44,\n    \"lng\": -99.15\n  },\n  \"dias\": [\n    0,\n    1,\n    2,\n    3,\n    4\n  ],\n  \"hora_salida\": \"08:00\",\n  \"hora_llegada\": \"07:45\",\n  \"tolerancia_min\": 10\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/hijos/{{hijo_id}}/ruta-habitual",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "hijos",
+            "{{hijo_id}}",
+            "ruta-habitual"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Sin sesión (401)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('rechaza con 401', () => pm.response.to.have.status(401));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/hijos/{{hijo_id}}/ruta-habitual",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "hijos",
+            "{{hijo_id}}",
+            "ruta-habitual"
+          ]
+        }
+      }
+    }
+  ]
+}
