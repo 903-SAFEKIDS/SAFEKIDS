@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from pymongo.errors import DuplicateKeyError
 
 from app.database import usuarios
+from app.ruta_habitual import router as ruta_habitual_router  # HU10
 
 # Clave para firmar los tokens de sesión. Agrega SECRET_KEY en tu .env;
 # si no existe, se genera una nueva cada vez que arranca el servidor
@@ -38,6 +39,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# HU10: ruta y horario habitual del menor
+app.include_router(ruta_habitual_router)
 
 EMAIL_REGEX = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 ESPECIAL_REGEX = re.compile(r"[!@#$%^&*()_+\-=\[\]{};:'\",.<>/?\\|~`]")
