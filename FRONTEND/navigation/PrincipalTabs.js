@@ -4,6 +4,7 @@ import InicioScreen from '../screens/InicioScreen';
 import RutasScreen from '../screens/RutasScreen';
 import AlertasScreen from '../screens/AlertasScreen';
 import SistemaScreen from '../screens/SistemaScreen';
+import { cerrarSesion } from '../services/sesion';
 
 const PANTALLAS = {
   Inicio: InicioScreen,
@@ -26,7 +27,10 @@ export default function PrincipalTabs({ navigation }) {
     <MarcoApp
       actual={actual}
       onNavegar={setActual}
-      onSalir={() => navigation.replace('Login')}
+        onSalir={() => {
+        cerrarSesion();
+        navigation.replace('Login');
+      }}
     >
       <Pantalla navigation={navegacion} />
     </MarcoApp>
