@@ -19,13 +19,30 @@ export function obtenerRecorridoSimulado() {
 
 const RECORRIDO = obtenerRecorridoSimulado();
 
-function estadoEn(i) {
-  const situacion = i <= 1 ? 'en_casa' : i >= PUNTOS - 2 ? 'en_escuela' : 'en_camino';
+// Recorrido que se sale de la ruta habitual (para la demo de HU08)
+const DESVIO = Array.from({ length: PUNTOS }, (_, i) => {
+  const t = i / (PUNTOS - 1);
+  return {
+    latitud: INICIO.latitud - 0.02 * t,
+    longitud: INICIO.longitud - 0.004 * t,
+  };
+});
+
+function estadoEn(i, desviado = false) {
+  const punto = desviado ? DESVIO[i] : RECORRIDO[i];
+  const situacion =
+    desviado && i >= 2
+      ? 'fuera_de_ruta'
+      : i <= 1
+        ? 'en_casa'
+        : i >= PUNTOS - 2
+          ? 'en_escuela'
+          : 'en_camino';
   return {
     nombre: 'Pablo',
-    ...RECORRIDO[i],
+    ...punto,
     situacion,
-    estado: 'seguro', // seguro | atencion | alerta
+    estado: 'seguro', // seguro | atencion | alerta (lo decide el backend)
     riesgo: 'Bajo',
     bateria: 85 - Math.floor(i / 4),
     llegadaEstimada: '08:04 AM',
@@ -38,13 +55,14 @@ function estadoEn(i) {
 }
 
 // Llama a `callback` con la ubicación actual y la actualiza cada `intervaloMs`.
+// Con `desviado` el recorrido se sale de la ruta habitual (demo).
 // Devuelve una función para cancelar la suscripción.
-export function suscribirUbicacion(callback, intervaloMs = 3000) {
+export function suscribirUbicacion(callback, intervaloMs = 3000, desviado = false) {
   let i = 0;
-  callback(estadoEn(i));
+  callback(estadoEn(i, desviado));
   const temporizador = setInterval(() => {
     i = (i + 1) % PUNTOS;
-    callback(estadoEn(i));
+    callback(estadoEn(i, desviado));
   }, intervaloMs);
   return () => clearInterval(temporizador);
 }

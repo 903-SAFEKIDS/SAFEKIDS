@@ -10,12 +10,16 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException
+from bson import ObjectId
+from bson.errors import InvalidId
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 from pymongo.errors import DuplicateKeyError
 
-from app.database import usuarios
+from app.alertas import RUTA_HABITUAL_SIMULADA, evaluar_ubicacion
+from app.database import rutas_temporales, usuarios
 
 # Clave para firmar los tokens de sesión. Agrega SECRET_KEY en tu .env;
 # si no existe, se genera una nueva cada vez que arranca el servidor
@@ -117,6 +121,33 @@ def crear_token(usuario_id: str, horas: int = 24) -> str:
     cuerpo = f"{usuario_id}:{expira}"
     firma = hmac.new(SECRET_KEY.encode(), cuerpo.encode(), hashlib.sha256).hexdigest()
     return base64.urlsafe_b64encode(f"{cuerpo}:{firma}".encode()).decode()
+
+
+esquema_bearer = HTTPBearer(auto_error=False)
+
+
+def verificar_token(token: str) -> str | None:
+    try:
+        crudo = base64.urlsafe_b64decode(token.encode()).decode()
+        usuario_id, expira, firma = crudo.split(":")
+        cuerpo = f"{usuario_id}:{expira}"
+        esperada = hmac.new(SECRET_KEY.encode(), cuerpo.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(firma, esperada) or int(expira) < time.time():
+            return None
+        return usuario_id
+    except Exception:
+        return None
+
+
+def usuario_actual(
+    cred: HTTPAuthorizationCredentials | None = Depends(esquema_bearer),
+) -> str:
+    if not cred:
+        raise HTTPException(401, "Inicia sesión para continuar.")
+    usuario_id = verificar_token(cred.credentials)
+    if not usuario_id:
+        raise HTTPException(401, "Tu sesión expiró. Inicia sesión de nuevo.")
+    return usuario_id
 
 
 # ---------- Registro ----------
@@ -257,3 +288,119 @@ def confirmar_recuperacion(datos: ConfirmarIn):
         },
     )
     return {"mensaje": "Contraseña actualizada."}
+
+
+# ---------- Rutas temporales (HU08) ----------
+
+class PuntoIn(BaseModel):
+    texto: str
+    lat: float | None = None
+    lng: float | None = None
+
+
+class RutaTemporalIn(BaseModel):
+    menor: str = "Pablo"
+    nombre: str
+    origen: PuntoIn
+    destino: PuntoIn
+    inicio: datetime
+    fin: datetime
+    motivo: str = ""
+
+
+def a_utc(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def serializar_ruta(r: dict) -> dict:
+    ahora = datetime.now(timezone.utc)
+    inicio, fin = a_utc(r["inicio"]), a_utc(r["fin"])
+    if r["estado"] == "cancelada":
+        estado = "cancelada"
+    elif fin < ahora:
+        estado = "vencida"
+    elif inicio > ahora:
+        estado = "programada"
+    else:
+        estado = "activa"
+    return {
+        "id": str(r["_id"]),
+        "menor": r["menor"],
+        "nombre": r["nombre"],
+        "origen": r["origen"],
+        "destino": r["destino"],
+        "inicio": inicio.isoformat(),
+        "fin": fin.isoformat(),
+        "motivo": r["motivo"],
+        "estado": estado,
+    }
+
+
+@app.post("/rutas/temporales", status_code=201)
+def crear_ruta_temporal(
+    datos: RutaTemporalIn, usuario_id: str = Depends(usuario_actual)
+):
+    nombre = datos.nombre.strip()
+    if not nombre:
+        raise HTTPException(400, "Escribe un nombre para la ruta.")
+    if not datos.origen.texto.strip() or not datos.destino.texto.strip():
+        raise HTTPException(400, "Indica el origen y el destino.")
+
+    inicio, fin = a_utc(datos.inicio), a_utc(datos.fin)
+    if fin <= inicio:
+        raise HTTPException(400, "La hora de fin debe ser posterior a la de inicio.")
+    if fin <= datetime.now(timezone.utc):
+        raise HTTPException(400, "Ese horario ya pasó. Elige uno futuro.")
+
+    doc = {
+        "usuario_id": usuario_id,
+        "menor": datos.menor.strip() or "Pablo",
+        "nombre": nombre,
+        "origen": datos.origen.model_dump(),
+        "destino": datos.destino.model_dump(),
+        "inicio": inicio,
+        "fin": fin,
+        "motivo": datos.motivo.strip(),
+        "estado": "autorizada",
+        "creada_en": datetime.now(timezone.utc),
+    }
+    doc["_id"] = rutas_temporales.insert_one(doc).inserted_id
+    return serializar_ruta(doc)
+
+
+@app.get("/rutas/temporales")
+def listar_rutas_temporales(usuario_id: str = Depends(usuario_actual)):
+    docs = rutas_temporales.find({"usuario_id": usuario_id}).sort("inicio", -1)
+    return [serializar_ruta(r) for r in docs]
+
+
+@app.delete("/rutas/temporales/{ruta_id}")
+def cancelar_ruta_temporal(ruta_id: str, usuario_id: str = Depends(usuario_actual)):
+    try:
+        oid = ObjectId(ruta_id)
+    except InvalidId:
+        raise HTTPException(404, "Ruta no encontrada.")
+    r = rutas_temporales.update_one(
+        {"_id": oid, "usuario_id": usuario_id}, {"$set": {"estado": "cancelada"}}
+    )
+    if r.matched_count == 0:
+        raise HTTPException(404, "Ruta no encontrada.")
+    return {"mensaje": "Ruta cancelada."}
+
+
+# ---------- Evaluación de ubicación (regla de alertas) ----------
+
+class UbicacionIn(BaseModel):
+    menor: str = "Pablo"
+    latitud: float
+    longitud: float
+
+
+@app.post("/alertas/evaluar")
+def evaluar(datos: UbicacionIn, usuario_id: str = Depends(usuario_actual)):
+    rutas = list(rutas_temporales.find({"usuario_id": usuario_id, "menor": datos.menor}))
+    return evaluar_ubicacion(
+        datos.latitud, datos.longitud, datos.menor, RUTA_HABITUAL_SIMULADA, rutas
+    )
