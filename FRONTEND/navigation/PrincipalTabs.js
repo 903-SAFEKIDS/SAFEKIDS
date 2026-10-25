@@ -5,10 +5,12 @@ import RutasScreen from '../screens/RutasScreen';
 import AlertasScreen from '../screens/AlertasScreen';
 import SistemaScreen from '../screens/SistemaScreen';
 import { cerrarSesion } from '../services/sesion';
+import RutasTemporalesScreen from '../screens/RutasTemporalesScreen';
 
 const PANTALLAS = {
   Inicio: InicioScreen,
   Rutas: RutasScreen,
+  'Rutas temporales': RutasTemporalesScreen,
   Alertas: AlertasScreen,
   Sistema: SistemaScreen,
 };
