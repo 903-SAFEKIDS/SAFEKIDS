@@ -37,3 +37,11 @@ export const evaluarUbicacion = (menor, latitud, longitud) =>
     method: 'POST',
     body: JSON.stringify({ menor, latitud, longitud }),
   });
+
+export const guardarRutaHabitual = (datos) =>
+  pedir('/rutas-habituales', { method: 'POST', body: JSON.stringify(datos) });
+
+export const listarRutasHabituales = () => pedir('/rutas-habituales');
+
+export const eliminarRutaHabitual = (id) =>
+  pedir(`/rutas-habituales/${id}`, { method: 'DELETE' });
