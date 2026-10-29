@@ -2,7 +2,8 @@
 // Celular físico: usa la IP de tu PC, por ejemplo http://192.168.1.10:8000
 import { Platform } from 'react-native';
 
-export const API_URL = Platform.OS === 'web' ? 'http://localhost:8000' : 'http://192.168.1.88:8000';
+export const API_URL = Platform.OS === 'web' ? 'http://localhost:8000' : 'http://192.168.1.70:8000';
+
 
 export async function iniciarSesion(correo, contrasena) {
   let respuesta;

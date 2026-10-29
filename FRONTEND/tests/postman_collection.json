@@ -1,0 +1,310 @@
+{
+  "info": {
+    "name": "SafeKids - HU10 Configuración de ruta",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Configuración válida",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Responde 201', function () { pm.response.to.have.status(201); });",
+              "pm.test('Devuelve el id', function () { pm.expect(pm.response.json()).to.have.property('id'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"menor_id\": \"pablo\",\n  \"nombre\": \"Casa a escuela\",\n  \"dias\": [\n    \"lun\",\n    \"mar\",\n    \"mie\",\n    \"jue\",\n    \"vie\"\n  ],\n  \"hora_inicio\": \"07:30\",\n  \"hora_fin\": \"08:15\",\n  \"puntos\": [\n    {\n      \"latitud\": 19.4,\n      \"longitud\": -99.03\n    },\n    {\n      \"latitud\": 19.4075,\n      \"longitud\": -99.0225\n    }\n  ]\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/rutas-habituales",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "rutas-habituales"
+          ]
+        }
+      }
+    },
+    {
+      "name": "2. Sin nombre",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Responde 400', function () { pm.response.to.have.status(400); });",
+              "pm.test('Devuelve un mensaje de error', function () { pm.expect(pm.response.json()).to.have.property('detail'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"menor_id\": \"pablo\",\n  \"nombre\": \"   \",\n  \"dias\": [\n    \"lun\",\n    \"mar\",\n    \"mie\",\n    \"jue\",\n    \"vie\"\n  ],\n  \"hora_inicio\": \"07:30\",\n  \"hora_fin\": \"08:15\",\n  \"puntos\": [\n    {\n      \"latitud\": 19.4,\n      \"longitud\": -99.03\n    },\n    {\n      \"latitud\": 19.4075,\n      \"longitud\": -99.0225\n    }\n  ]\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/rutas-habituales",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "rutas-habituales"
+          ]
+        }
+      }
+    },
+    {
+      "name": "3. Sin días",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Responde 400', function () { pm.response.to.have.status(400); });",
+              "pm.test('Devuelve un mensaje de error', function () { pm.expect(pm.response.json()).to.have.property('detail'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"menor_id\": \"pablo\",\n  \"nombre\": \"Casa a escuela\",\n  \"dias\": [],\n  \"hora_inicio\": \"07:30\",\n  \"hora_fin\": \"08:15\",\n  \"puntos\": [\n    {\n      \"latitud\": 19.4,\n      \"longitud\": -99.03\n    },\n    {\n      \"latitud\": 19.4075,\n      \"longitud\": -99.0225\n    }\n  ]\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/rutas-habituales",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "rutas-habituales"
+          ]
+        }
+      }
+    },
+    {
+      "name": "4. Día inválido",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Responde 400', function () { pm.response.to.have.status(400); });",
+              "pm.test('Devuelve un mensaje de error', function () { pm.expect(pm.response.json()).to.have.property('detail'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"menor_id\": \"pablo\",\n  \"nombre\": \"Casa a escuela\",\n  \"dias\": [\n    \"lunes\"\n  ],\n  \"hora_inicio\": \"07:30\",\n  \"hora_fin\": \"08:15\",\n  \"puntos\": [\n    {\n      \"latitud\": 19.4,\n      \"longitud\": -99.03\n    },\n    {\n      \"latitud\": 19.4075,\n      \"longitud\": -99.0225\n    }\n  ]\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/rutas-habituales",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "rutas-habituales"
+          ]
+        }
+      }
+    },
+    {
+      "name": "5. Hora de fin menor que la de inicio",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Responde 400', function () { pm.response.to.have.status(400); });",
+              "pm.test('Devuelve un mensaje de error', function () { pm.expect(pm.response.json()).to.have.property('detail'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"menor_id\": \"pablo\",\n  \"nombre\": \"Casa a escuela\",\n  \"dias\": [\n    \"lun\",\n    \"mar\",\n    \"mie\",\n    \"jue\",\n    \"vie\"\n  ],\n  \"hora_inicio\": \"08:15\",\n  \"hora_fin\": \"07:30\",\n  \"puntos\": [\n    {\n      \"latitud\": 19.4,\n      \"longitud\": -99.03\n    },\n    {\n      \"latitud\": 19.4075,\n      \"longitud\": -99.0225\n    }\n  ]\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/rutas-habituales",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "rutas-habituales"
+          ]
+        }
+      }
+    },
+    {
+      "name": "6. Hora con formato incorrecto",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Responde 400', function () { pm.response.to.have.status(400); });",
+              "pm.test('Devuelve un mensaje de error', function () { pm.expect(pm.response.json()).to.have.property('detail'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"menor_id\": \"pablo\",\n  \"nombre\": \"Casa a escuela\",\n  \"dias\": [\n    \"lun\",\n    \"mar\",\n    \"mie\",\n    \"jue\",\n    \"vie\"\n  ],\n  \"hora_inicio\": \"7:30\",\n  \"hora_fin\": \"08:15\",\n  \"puntos\": [\n    {\n      \"latitud\": 19.4,\n      \"longitud\": -99.03\n    },\n    {\n      \"latitud\": 19.4075,\n      \"longitud\": -99.0225\n    }\n  ]\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/rutas-habituales",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "rutas-habituales"
+          ]
+        }
+      }
+    },
+    {
+      "name": "7. Menos de 2 puntos",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Responde 400', function () { pm.response.to.have.status(400); });",
+              "pm.test('Devuelve un mensaje de error', function () { pm.expect(pm.response.json()).to.have.property('detail'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"menor_id\": \"pablo\",\n  \"nombre\": \"Casa a escuela\",\n  \"dias\": [\n    \"lun\",\n    \"mar\",\n    \"mie\",\n    \"jue\",\n    \"vie\"\n  ],\n  \"hora_inicio\": \"07:30\",\n  \"hora_fin\": \"08:15\",\n  \"puntos\": [\n    {\n      \"latitud\": 19.4,\n      \"longitud\": -99.03\n    }\n  ]\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/rutas-habituales",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "rutas-habituales"
+          ]
+        }
+      }
+    },
+    {
+      "name": "8. Latitud fuera de rango",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Responde 400', function () { pm.response.to.have.status(400); });",
+              "pm.test('Devuelve un mensaje de error', function () { pm.expect(pm.response.json()).to.have.property('detail'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"menor_id\": \"pablo\",\n  \"nombre\": \"Casa a escuela\",\n  \"dias\": [\n    \"lun\",\n    \"mar\",\n    \"mie\",\n    \"jue\",\n    \"vie\"\n  ],\n  \"hora_inicio\": \"07:30\",\n  \"hora_fin\": \"08:15\",\n  \"puntos\": [\n    {\n      \"latitud\": 120,\n      \"longitud\": -99.03\n    },\n    {\n      \"latitud\": 19.4,\n      \"longitud\": -99.0\n    }\n  ]\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/rutas-habituales",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "rutas-habituales"
+          ]
+        }
+      }
+    }
+  ]
+}

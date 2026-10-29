@@ -5,4 +5,5 @@ export const SECCIONES = [
   { nombre: 'Rutas temporales', icono: 'time' },
   { nombre: 'Alertas', icono: 'notifications' },
   { nombre: 'Sistema', icono: 'settings' },
+
 ];
