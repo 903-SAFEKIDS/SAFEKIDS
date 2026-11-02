@@ -118,3 +118,90 @@ def eliminar_ruta_habitual(ruta_id: str, usuario_id: str = Depends(usuario_actua
     if r.deleted_count == 0:
         raise HTTPException(404, "Ruta no encontrada.")
     return {"mensaje": "Ruta eliminada."}
+
+    # ---------- Historial de recorridos (HU05) ----------
+
+recorridos = usuarios.database["recorridos"]
+
+
+class PuntoRecorridoIn(BaseModel):
+    latitud: float
+    longitud: float
+    momento: datetime | None = None
+
+
+class RecorridoIn(BaseModel):
+    menor: str = "Pablo"
+    puntos: list[PuntoRecorridoIn]
+
+
+def _utc(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+@router.post("/recorridos/puntos", status_code=201)
+def guardar_puntos(datos: RecorridoIn, usuario_id: str = Depends(usuario_actual)):
+    if not datos.puntos:
+        raise HTTPException(400, "No hay puntos que guardar.")
+    if len(datos.puntos) > 500:
+        raise HTTPException(400, "Máximo 500 puntos por solicitud.")
+
+    ahora = datetime.now(timezone.utc)
+    docs = []
+    for p in datos.puntos:
+        if not (-90 <= p.latitud <= 90) or not (-180 <= p.longitud <= 180):
+            raise HTTPException(400, "Coordenadas fuera de rango.")
+        docs.append(
+            {
+                "usuario_id": usuario_id,
+                "menor": datos.menor,
+                "latitud": p.latitud,
+                "longitud": p.longitud,
+                "momento": _utc(p.momento) if p.momento else ahora,
+            }
+        )
+    recorridos.insert_many(docs)
+    return {"guardados": len(docs)}
+
+
+@router.get("/recorridos")
+def obtener_recorrido(
+    menor: str,
+    desde: datetime,
+    hasta: datetime,
+    usuario_id: str = Depends(usuario_actual),
+):
+    docs = recorridos.find(
+        {
+            "usuario_id": usuario_id,
+            "menor": menor,
+            "momento": {"$gte": _utc(desde), "$lt": _utc(hasta)},
+        }
+    ).sort("momento", 1)
+    return [
+        {
+            "latitud": d["latitud"],
+            "longitud": d["longitud"],
+            "momento": _utc(d["momento"]).isoformat(),
+        }
+        for d in docs
+    ]
+
+
+@router.delete("/recorridos")
+def borrar_recorrido(
+    menor: str,
+    desde: datetime,
+    hasta: datetime,
+    usuario_id: str = Depends(usuario_actual),
+):
+    r = recorridos.delete_many(
+        {
+            "usuario_id": usuario_id,
+            "menor": menor,
+            "momento": {"$gte": _utc(desde), "$lt": _utc(hasta)},
+        }
+    )
+    return {"eliminados": r.deleted_count}
