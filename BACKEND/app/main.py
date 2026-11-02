@@ -22,6 +22,7 @@ from pymongo.errors import DuplicateKeyError
 from app.alertas import RUTA_HABITUAL_SIMULADA, evaluar_ubicacion
 from app.database import rutas_temporales, usuarios
 
+
 # Clave para firmar los tokens de sesión. Agrega SECRET_KEY en tu .env;
 # si no existe, se genera una nueva cada vez que arranca el servidor
 # (las sesiones abiertas se cierran al reiniciar).
@@ -36,6 +37,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 app.include_router(rutas_router)
+from app.notificaciones import router as notificaciones_router
+app.include_router(notificaciones_router)
 
 # Abierto para desarrollo (permite que el navegador llame al backend)
 app.add_middleware(
