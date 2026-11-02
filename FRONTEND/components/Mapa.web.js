@@ -43,13 +43,15 @@ window.addEventListener('message', function (e) {
     marcador.setLatLng(p);
     if (d.titulo && marcador.getTooltip()) marcador.setTooltipContent(d.titulo);
   }
-  map.panTo(p);
 
   if (d.ruta && d.ruta.length > 1) {
     var pts = d.ruta.map(function (x) { return [x.latitud, x.longitud]; });
     if (!linea) linea = L.polyline(pts, { color: '#9C4499', weight: 4 }).addTo(map);
     else linea.setLatLngs(pts);
   } else if (linea) { map.removeLayer(linea); linea = null; }
+
+  if (d.ajustar && linea) map.fitBounds(linea.getBounds(), { padding: [30, 30] });
+  else map.panTo(p);
 
   if (d.radio) {
     if (!circulo) circulo = L.circle(p, { radius: d.radio, color: '#9C4499', fillOpacity: 0.15 }).addTo(map);
@@ -61,7 +63,7 @@ window.addEventListener('message', function (e) {
 </html>`;
 }
 
-export default function Mapa({ ubicacion, titulo, ruta, radio, style }) {
+export default function Mapa({ ubicacion, titulo, ruta, radio, ajustar, style }) {
   const marco = useRef(null);
   const listo = useRef(false);
   // El HTML se genera una sola vez: si cambiara, el iframe se recargaría
@@ -70,12 +72,19 @@ export default function Mapa({ ubicacion, titulo, ruta, radio, style }) {
   const enviar = () => {
     if (!listo.current) return;
     marco.current?.contentWindow?.postMessage(
-      { tipo: 'mapa', lat: ubicacion.latitud, lng: ubicacion.longitud, titulo, ruta, radio },
+      { tipo: 'mapa', lat: ubicacion.latitud, lng: ubicacion.longitud, titulo, ruta, radio, ajustar },
       '*'
     );
   };
 
-  useEffect(enviar, [ubicacion.latitud, ubicacion.longitud, titulo, radio, JSON.stringify(ruta ?? null)]);
+  useEffect(enviar, [
+    ubicacion.latitud,
+    ubicacion.longitud,
+    titulo,
+    radio,
+    ajustar,
+    JSON.stringify(ruta ?? null),
+  ]);
 
   return (
     <View style={[styles.contenedor, style]}>

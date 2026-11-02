@@ -45,3 +45,15 @@ export const listarRutasHabituales = () => pedir('/rutas-habituales');
 
 export const eliminarRutaHabitual = (id) =>
   pedir(`/rutas-habituales/${id}`, { method: 'DELETE' });
+
+const rango = (menor, desde, hasta) =>
+  `?menor=${encodeURIComponent(menor)}&desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}`;
+
+export const guardarPuntosRecorrido = (menor, puntos) =>
+  pedir('/recorridos/puntos', { method: 'POST', body: JSON.stringify({ menor, puntos }) });
+
+export const obtenerRecorrido = (menor, desde, hasta) =>
+  pedir(`/recorridos${rango(menor, desde, hasta)}`);
+
+export const borrarRecorrido = (menor, desde, hasta) =>
+  pedir(`/recorridos${rango(menor, desde, hasta)}`, { method: 'DELETE' });

@@ -7,6 +7,8 @@ import SistemaScreen from '../screens/SistemaScreen';
 import ConfigRutaScreen from '../screens/ConfigRutaScreen';
 import RutasTemporalesScreen from '../screens/RutasTemporalesScreen';
 import { cerrarSesion } from '../services/sesion';
+import HistorialScreen from '../screens/HistorialScreen';
+
 
 const PANTALLAS = {
   Inicio: InicioScreen,
@@ -14,7 +16,7 @@ const PANTALLAS = {
   'Rutas temporales': RutasTemporalesScreen,
   Alertas: AlertasScreen,
   Sistema: SistemaScreen,
-  
+  Historial: HistorialScreen,
 };
 
 export default function PrincipalTabs({ navigation }) {
