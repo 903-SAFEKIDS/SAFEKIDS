@@ -19,6 +19,7 @@ import CampoGlass from '../components/CampoGlass';
 import BotonGlass from '../components/BotonGlass';
 import { colors } from '../styles/colors';
 import { iniciarSesion } from '../services/authService';
+import { guardarSesion } from '../services/sesion';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -41,8 +42,8 @@ export default function LoginScreen({ navigation }) {
     setError('');
     setCargando(true);
     try {
-      await iniciarSesion(correo.trim().toLowerCase(), contrasena);
-      // TODO: guardar el token de la sesión cuando exista el backend
+      const datos = await iniciarSesion(correo.trim().toLowerCase(), contrasena);
+      guardarSesion(datos);
       navigation.replace('Principal');
     } catch (e) {
       setError(e.message);

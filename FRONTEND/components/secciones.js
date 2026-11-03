@@ -2,6 +2,8 @@
 export const SECCIONES = [
   { nombre: 'Inicio', icono: 'home' },
   { nombre: 'Rutas', icono: 'navigate' },
+  { nombre: 'Rutas temporales', icono: 'time' },
   { nombre: 'Alertas', icono: 'notifications' },
   { nombre: 'Sistema', icono: 'settings' },
+  { nombre: 'Historial', icono: 'footsteps-outline' },
 ];

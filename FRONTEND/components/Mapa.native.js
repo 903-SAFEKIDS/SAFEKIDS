@@ -11,17 +11,25 @@ const aCoordenada = (p) => ({ latitude: p.latitud, longitude: p.longitud });
  * titulo:    texto del marcador
  * ruta:      [{ latitud, longitud }] -> línea del recorrido (HU05)
  * radio:     metros                  -> zona alcanzable (HU11)
+ * ajustar:   true -> encuadra todo el recorrido (historial)
  */
-export default function Mapa({ ubicacion, titulo, ruta, radio, style }) {
+export default function Mapa({ ubicacion, titulo, ruta, radio, ajustar, style }) {
   const mapa = useRef(null);
 
   // Centra el mapa cada vez que cambia la ubicación (tiempo real)
   useEffect(() => {
+    if (ajustar && ruta?.length > 1) {
+      mapa.current?.fitToCoordinates(ruta.map(aCoordenada), {
+        edgePadding: { top: 40, right: 40, bottom: 40, left: 40 },
+        animated: true,
+      });
+      return;
+    }
     mapa.current?.animateToRegion(
       { ...aCoordenada(ubicacion), latitudeDelta: 0.01, longitudeDelta: 0.01 },
       500
     );
-  }, [ubicacion.latitud, ubicacion.longitud]);
+  }, [ubicacion.latitud, ubicacion.longitud, ajustar, ruta?.length]);
 
   return (
     <MapView
