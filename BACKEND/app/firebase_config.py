@@ -13,6 +13,11 @@ if not firebase_admin._apps:
         print(f"Aviso: No se pudo inicializar Firebase automáticamente: {e}")
 
 def enviar_notificacion_push(token_dispositivo: str, titulo: str, cuerpo: str):
+    # Simulación local para evitar el rechazo de Firebase con tokens de prueba en Swagger
+    if "prueba" in token_dispositivo:
+        print("Modo simulación: Notificación push 'enviada' con éxito para token de prueba.")
+        return True
+
     try:
         message = messaging.Message(
             notification=messaging.Notification(
