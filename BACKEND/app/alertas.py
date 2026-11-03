@@ -52,13 +52,14 @@ def ruta_autorizada_vigente(rutas: list[dict], menor: str, ahora: datetime) -> d
     return None
 
 
-def _resultado(estado, riesgo, motivo, autorizada, distancia):
+def _resultado(estado, riesgo, motivo, autorizada, distancia, puntuacion=None):
     return {
         "estado": estado,  # seguro | atencion | alerta
         "riesgo": riesgo,  # Bajo | Medio | Alto
         "motivo": motivo,
         "ruta_autorizada": autorizada["nombre"] if autorizada else None,
         "distancia_m": distancia,
+        "puntuacion_modelo": puntuacion,  # HU07: puntuación del Isolation Forest
     }
 
 
@@ -86,8 +87,40 @@ def evaluar_ubicacion(
             distancia,
         )
 
-    if distancia <= DISTANCIA_ALERTA_M:
-        return _resultado("atencion", "Medio", "Se alejó de su ruta habitual.", None, distancia)
+    # HU07: el modelo de IA (Isolation Forest) decide si la ubicación es anómala.
+    # Se importa aquí dentro para evitar un import circular, porque
+    # modelo_desviacion.py también importa cosas de alertas.py.
+    from app.modelo_desviacion import puntuar_ubicacion
+    from app.riesgo import clasificar_riesgo
+
+    puntuacion = round(
+        puntuar_ubicacion(latitud, longitud, ahora, ruta_habitual=ruta_habitual), 3
+    )
+    riesgo = clasificar_riesgo(puntuacion, distancia)
+
+    if riesgo == "Bajo":
+        return _resultado(
+            "seguro",
+            "Bajo",
+            "El modelo considera normal esta ubicación.",
+            None,
+            distancia,
+            puntuacion,
+        )
+    if riesgo == "Medio":
+        return _resultado(
+            "atencion",
+            "Medio",
+            "El modelo detectó que se alejó de su ruta habitual.",
+            None,
+            distancia,
+            puntuacion,
+        )
     return _resultado(
-        "alerta", "Alto", "Se desvió de su ruta habitual sin autorización.", None, distancia
+        "alerta",
+        "Alto",
+        "El modelo detectó una desviación de su ruta habitual sin autorización.",
+        None,
+        distancia,
+        puntuacion,
     )
