@@ -14,7 +14,7 @@ from email.message import EmailMessage
 from bson import ObjectId
 from bson.errors import InvalidId
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
@@ -53,11 +53,33 @@ app.add_middleware(
 
 @app.get("/firebase-messaging-sw.js")
 async def servir_service_worker():
-    # Ajusta la ruta relativa o absoluta donde guardaste el archivo físico
-    sw_path = os.path.join("FRONTEND", "firebase-messaging-sw.js")
-    if not os.path.exists(sw_path):
-        raise HTTPException(status_code=404, detail="Service Worker no encontrado en el servidor")
-    return FileResponse(sw_path, media_type="application/javascript")
+    sw_code = """
+importScripts('https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/10.7.1/firebase-messaging-compat.js');
+
+firebase.initializeApp({
+  apiKey: "AIzaSyAXl6wwOjs14gNu09H4z8EZ5joIP3IQro",
+  authDomain: "safekids-back.firebaseapp.com",
+  projectId: "safekids-back",
+  storageBucket: "safekids-back.firebasestorage.app",
+  messagingSenderId: "420813761540",
+  appId: "1:420813761540:web:c23978036d3b0ee3d15951"
+});
+
+const messaging = firebase.messaging();
+
+messaging.onBackgroundMessage((payload) => {
+  console.log('[firebase-messaging-sw.js] Mensaje recibido en segundo plano ', payload);
+  const notificationTitle = payload.notification.title;
+  const notificationOptions = {
+    body: payload.notification.body,
+    icon: '/favicon.ico'
+  };
+
+  self.registration.showNotification(notificationTitle, notificationOptions);
+});
+    """
+    return Response(content=sw_code, media_type="application/javascript")
 
 
 EMAIL_REGEX = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
