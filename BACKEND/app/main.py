@@ -14,6 +14,7 @@ from email.message import EmailMessage
 from bson import ObjectId
 from bson.errors import InvalidId
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
@@ -47,6 +48,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ---------- Service Worker para Notificaciones Push ----------
+
+@app.get("/firebase-messaging-sw.js")
+async def servir_service_worker():
+    # Ajusta la ruta relativa o absoluta donde guardaste el archivo físico
+    sw_path = os.path.join("FRONTEND", "firebase-messaging-sw.js")
+    if not os.path.exists(sw_path):
+        raise HTTPException(status_code=404, detail="Service Worker no encontrado en el servidor")
+    return FileResponse(sw_path, media_type="application/javascript")
+
 
 EMAIL_REGEX = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 ESPECIAL_REGEX = re.compile(r"[!@#$%^&*()_+\-=\[\]{};:'\",.<>/?\\|~`]")
