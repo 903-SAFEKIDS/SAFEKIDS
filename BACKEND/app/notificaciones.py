@@ -9,6 +9,7 @@ router = APIRouter()
 class TokenRequest(BaseModel):
     user_id: str
     token: str
+    codigo_activacion: str | None = None
 
 # Estructura para enviar la notificación
 class NotificacionRequest(BaseModel):
@@ -20,9 +21,13 @@ class NotificacionRequest(BaseModel):
 def registrar_dispositivo(data: TokenRequest):
     try:
         # Guardar o actualizar el token del dispositivo en la colección de MongoDB
+        update_data = {"token": data.token}
+        if data.codigo_activacion:
+            update_data["codigo_activacion"] = data.codigo_activacion
+
         dispositivos.update_one(
             {"user_id": data.user_id},
-            {"$set": {"token": data.token}},
+            {"$set": update_data},
             upsert=True
         )
         return {"mensaje": "Token de dispositivo registrado con éxito en MongoDB"}
