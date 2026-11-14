@@ -4,7 +4,7 @@ from app.ia.destinos import probabilidad_destinos
 from app.ia.lugares import asignar_lugar, construir_visitas, lugares_frecuentes
 from app.ia.senal import estado_senal, ultimo_punto
 from app.ia.tiempo import a_utc
-
+from app.ia.alcance import filtrar_destinos_por_zona, velocidad_para_zona, zona_alcanzable
 
 def predecir_destinos(puntos: list[dict], ahora: datetime | None = None) -> dict:
     """Flujo de HU11 sin la zona alcanzable: señal, lugares, visitas y destinos probables.
@@ -39,3 +39,16 @@ def predecir_destinos(puntos: list[dict], ahora: datetime | None = None) -> dict
         "lugares": lugares,
         "destinos": destinos,
     }
+
+
+def predecir_con_zona(puntos: list[dict], ahora: datetime | None = None) -> dict | None:
+    """Predicción completa de HU11: destinos probables dentro de la zona alcanzable."""
+    resultado = predecir_destinos(puntos, ahora)
+    ultima = resultado["ultima_ubicacion"]
+    if ultima is None:
+        return None
+    minutos = resultado["senal"]["minutos_sin_senal"] or 0
+    zona = zona_alcanzable(ultima["lat"], ultima["lng"], velocidad_para_zona(puntos), minutos)
+    resultado["zona"] = zona
+    resultado["destinos"] = filtrar_destinos_por_zona(resultado["destinos"], zona)
+    return resultado

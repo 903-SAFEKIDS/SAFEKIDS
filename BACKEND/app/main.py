@@ -7,6 +7,7 @@ import secrets
 import smtplib
 import time
 from app.rutas import router as rutas_router
+from app.predicciones import router as predicciones_router
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
@@ -37,6 +38,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 app.include_router(rutas_router)
+app.include_router(predicciones_router)
 from app.notificaciones import router as notificaciones_router
 app.include_router(notificaciones_router)
 
