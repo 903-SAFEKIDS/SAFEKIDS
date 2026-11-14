@@ -6,4 +6,5 @@ export const SECCIONES = [
   { nombre: 'Alertas', icono: 'notifications' },
   { nombre: 'Sistema', icono: 'settings' },
   { nombre: 'Historial', icono: 'footsteps-outline' },
+  { nombre: 'Predicción', icono: 'compass' },
 ];
