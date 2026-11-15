@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import GlassCard from '../components/GlassCard';
-import BotonGlass from '../components/BotonGlass';
 import Mapa from '../components/Mapa';
 import { useMarco } from '../components/MarcoApp';
 import { colors } from '../styles/colors';
@@ -191,6 +190,7 @@ export default function HistorialScreen() {
   const [habituales, setHabituales] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [generando, setGenerando] = useState(false);
+  const [sinRutas, setSinRutas] = useState(false);
   const [error, setError] = useState('');
 
   const esHoy = fecha.getTime() >= inicioDelDia(new Date()).getTime();
@@ -234,90 +234,127 @@ export default function HistorialScreen() {
 
   // DEMO: genera varios días de recorridos siguiendo las calles de las rutas
   // habituales. Alterna las rutas por día y respeta los días configurados.
+  // Se ejecuta sola la primera vez, si no hay recorridos recientes.
   // Se quita cuando la pulsera mande posiciones reales.
-  const generarDemo = async () => {
-    setGenerando(true);
-    setError('');
-    try {
-      const lista = await listarRutasHabituales();
-      if (!lista.length) throw new Error('Primero configura una ruta habitual en Rutas.');
-      setHabituales(lista);
+  const generarDatosDemo = async () => {
+    const hoy = inicioDelDia(new Date());
 
-      const trazos = new Map(); // ruta -> trazo de calles (se pide una vez por ruta)
-      const obtenerTrazo = async (ruta) => {
-        if (!trazos.has(ruta)) {
-          const [o, d] = ruta.puntos;
-          const est = await estimarRuta(o, d, 'pie');
-          trazos.set(ruta, est.trazo ?? [o, d]);
-        }
-        return trazos.get(ruta);
-      };
-
-      const nuevos = [];
-      for (let k = DIAS_DEMO - 1; k >= 0; k--) {
-        const dia = sumarDias(fecha, -k);
-
-        // Solo las rutas que aplican ese día de la semana
-        const elegibles = lista.filter((r) => diasDeRuta(r).has(dia.getDay()));
-        if (!elegibles.length) continue;
-
-        // Alterna entre las rutas elegibles según el día
-        const numDia = Math.floor((dia.getTime() - dia.getTimezoneOffset() * 60000) / 86400000);
-        const ruta = elegibles[numDia % elegibles.length];
-
-        const [o, d] = ruta.puntos;
-        const ida = await obtenerTrazo(ruta);
-        const vuelta = [...ida].reverse();
-
-        const [h1, m1] = ruta.hora_inicio.split(':').map(Number);
-        const [h2, m2] = ruta.hora_fin.split(':').map(Number);
-        const duracion = Math.max(h2 * 60 + m2 - (h1 * 60 + m1), 10) * 60000;
-
-        const en = (h, m) => {
-          const x = new Date(dia);
-          x.setHours(h, m, 0, 0);
-          return x;
-        };
-        const salida = en(h1, m1);
-        const llegada = new Date(salida.getTime() + duracion);
-        // Se queda en el destino hasta las 14:00 (o al menos 3 h)
-        const salidaDestino = new Date(Math.max(en(14, 0).getTime(), llegada.getTime() + 3 * 3600000));
-        const regreso = new Date(salidaDestino.getTime() + duracion);
-        const finDia = new Date(Math.max(en(20, 0).getTime(), regreso.getTime() + 3600000));
-
-        nuevos.push(
-          ...caminar(ida, salida, duracion), // origen -> destino
-          ...quedarse(d, llegada, salidaDestino), // en el destino
-          ...caminar(vuelta, salidaDestino, duracion), // destino -> origen
-          ...quedarse(o, regreso, finDia, 30) // en el origen
-        );
-      }
-
-      // No inventar puntos en el futuro (si el día es hoy)
-      const ahora = Date.now();
-      const validos = nuevos.filter((p) => new Date(p.momento).getTime() <= ahora);
-      if (!validos.length) {
-        throw new Error('Ninguna ruta habitual aplica a los últimos días. Revisa los días de la ruta.');
-      }
-
-      await borrarRecorrido(
-        MENOR,
-        sumarDias(fecha, -(DIAS_DEMO - 1)).toISOString(),
-        sumarDias(fecha, 1).toISOString()
-      );
-
-      // Se envían en lotes de 100 para no mandar una petición enorme
-      for (let i = 0; i < validos.length; i += 100) {
-        await guardarPuntosRecorrido(MENOR, validos.slice(i, i + 100));
-      }
-
-      await cargar();
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setGenerando(false);
+    const lista = await listarRutasHabituales();
+    if (!lista.length) {
+      throw new Error('Configura una ruta habitual en Rutas para ver el historial.');
     }
+    setHabituales(lista);
+
+    const trazos = new Map(); // ruta -> trazo de calles (se pide una vez por ruta)
+    const obtenerTrazo = async (ruta) => {
+      if (!trazos.has(ruta)) {
+        const [o, d] = ruta.puntos;
+        const est = await estimarRuta(o, d, 'pie');
+        trazos.set(ruta, est.trazo ?? [o, d]);
+      }
+      return trazos.get(ruta);
+    };
+
+    const nuevos = [];
+    for (let k = DIAS_DEMO - 1; k >= 0; k--) {
+      const dia = sumarDias(hoy, -k);
+
+      // Solo las rutas que aplican ese día de la semana
+      const elegibles = lista.filter((r) => diasDeRuta(r).has(dia.getDay()));
+      if (!elegibles.length) continue;
+
+      // Alterna entre las rutas elegibles según el día
+      const numDia = Math.floor((dia.getTime() - dia.getTimezoneOffset() * 60000) / 86400000);
+      const ruta = elegibles[numDia % elegibles.length];
+
+      const [o, d] = ruta.puntos;
+      const ida = await obtenerTrazo(ruta);
+      const vuelta = [...ida].reverse();
+
+      const [h1, m1] = ruta.hora_inicio.split(':').map(Number);
+      const [h2, m2] = ruta.hora_fin.split(':').map(Number);
+      const duracion = Math.max(h2 * 60 + m2 - (h1 * 60 + m1), 10) * 60000;
+
+      const en = (h, m) => {
+        const x = new Date(dia);
+        x.setHours(h, m, 0, 0);
+        return x;
+      };
+      const salida = en(h1, m1);
+      const llegada = new Date(salida.getTime() + duracion);
+      // Se queda en el destino hasta las 14:00 (o al menos 3 h)
+      const salidaDestino = new Date(Math.max(en(14, 0).getTime(), llegada.getTime() + 3 * 3600000));
+      const regreso = new Date(salidaDestino.getTime() + duracion);
+      const finDia = new Date(Math.max(en(20, 0).getTime(), regreso.getTime() + 3600000));
+
+      nuevos.push(
+        ...caminar(ida, salida, duracion), // origen -> destino
+        ...quedarse(d, llegada, salidaDestino), // en el destino
+        ...caminar(vuelta, salidaDestino, duracion), // destino -> origen
+        ...quedarse(o, regreso, finDia, 30) // en el origen
+      );
+    }
+
+    // No inventar puntos en el futuro (si el día es hoy)
+    const ahora = Date.now();
+    const validos = nuevos.filter((p) => new Date(p.momento).getTime() <= ahora);
+    if (!validos.length) {
+      throw new Error('Ninguna ruta habitual aplica a los últimos días. Revisa los días de la ruta.');
+    }
+
+    await borrarRecorrido(
+      MENOR,
+      sumarDias(hoy, -(DIAS_DEMO - 1)).toISOString(),
+      sumarDias(hoy, 1).toISOString()
+    );
+
+    // Se envían en lotes de 100 para no mandar una petición enorme
+    for (let i = 0; i < validos.length; i += 100) {
+      await guardarPuntosRecorrido(MENOR, validos.slice(i, i + 100));
+    }
+
+    // Último día que sí tiene recorrido
+    return inicioDelDia(new Date(validos[validos.length - 1].momento));
   };
+
+  // Al abrir la pantalla: si no hay recorridos recientes, genera los de prueba
+  const iniciado = useRef(false);
+  useEffect(() => {
+    if (iniciado.current) return;
+    iniciado.current = true;
+
+    (async () => {
+      try {
+        const hoy = inicioDelDia(new Date());
+        const recientes = await obtenerRecorrido(
+          MENOR,
+          sumarDias(hoy, -(DIAS_DEMO - 1)).toISOString(),
+          sumarDias(hoy, 1).toISOString()
+        );
+        if (recientes.length > 0) return;
+
+        // Sin rutas habituales no se genera nada: se avisa
+        const rutasGuardadas = await listarRutasHabituales();
+        if (!rutasGuardadas.length) {
+          setSinRutas(true);
+          return;
+        }
+
+        setGenerando(true);
+        const ultimoDia = await generarDatosDemo();
+        if (ultimoDia.getTime() !== fecha.getTime()) {
+          setFecha(ultimoDia); // salta al último día con recorrido y se recarga solo
+        } else {
+          await cargar();
+        }
+      } catch (e) {
+        setError(e.message);
+      } finally {
+        setGenerando(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const ultimo = puntos[puntos.length - 1];
 
@@ -358,10 +395,25 @@ export default function HistorialScreen() {
             </Pressable>
           </View>
 
-          {cargando ? (
-            <ActivityIndicator color={colors.boton} style={{ marginTop: 24 }} />
+          {cargando || generando ? (
+            <View style={styles.preparando}>
+              <ActivityIndicator color={colors.boton} />
+              {generando ? (
+                <Text style={styles.preparandoTexto}>Preparando el historial..</Text>
+              ) : null}
+            </View>
           ) : puntos.length === 0 ? (
-            <Text style={styles.vacio}>No hay recorrido registrado este día.</Text>
+            sinRutas ? (
+              <View style={styles.aviso}>
+                <Ionicons name="information-circle" size={20} color={colors.moradoMedio} />
+                <Text style={styles.avisoTexto}>
+                  No hay historial porque aún no hay rutas agregadas. Agrega una ruta habitual en
+                  Rutas y el historial se mostrará aquí.
+                </Text>
+              </View>
+            ) : (
+              <Text style={styles.vacio}>No hay recorrido registrado este día.</Text>
+            )
           ) : (
             <>
               <View style={styles.mapa}>
@@ -407,13 +459,6 @@ export default function HistorialScreen() {
             </View>
           ) : null}
 
-          <BotonGlass
-            titulo="Generar recorrido de prueba (demo)"
-            variante="secundario"
-            onPress={generarDemo}
-            cargando={generando}
-            style={{ marginTop: 16 }}
-          />
         </GlassCard>
       </View>
     </ScrollView>
@@ -453,6 +498,17 @@ const styles = StyleSheet.create({
   },
   eventoTitulo: { fontSize: 14, fontWeight: '700', color: colors.texto },
   eventoDetalle: { marginTop: 2, fontSize: 12, color: colors.textoSuave },
+  preparando: { marginTop: 24, alignItems: 'center' },
+  preparandoTexto: { marginTop: 10, fontSize: 13, color: colors.textoSuave },
+  aviso: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 20,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: 'rgba(156,68,153,0.10)',
+  },
+  avisoTexto: { flex: 1, marginLeft: 10, color: colors.moradoMedio, fontSize: 14, fontWeight: '600' },
   vacio: { marginTop: 24, textAlign: 'center', color: colors.textoSuave, fontSize: 14 },
   errorCaja: {
     flexDirection: 'row',
