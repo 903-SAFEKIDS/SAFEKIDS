@@ -29,7 +29,7 @@ var icono = L.divIcon({
   html: '<div style="width:22px;height:22px;border-radius:50%;background:#9C4499;border:3px solid #fff;box-shadow:0 0 0 7px rgba(156,68,153,.25)"></div>',
   iconSize: [22, 22], iconAnchor: [11, 11]
 });
-var marcador = null, linea = null, circulo = null;
+var marcador = null, linea = null, circulo = null, extras = L.layerGroup().addTo(map);
 
 window.addEventListener('message', function (e) {
   var d = e.data;
@@ -56,14 +56,27 @@ window.addEventListener('message', function (e) {
   if (d.radio) {
     if (!circulo) circulo = L.circle(p, { radius: d.radio, color: '#9C4499', fillOpacity: 0.15 }).addTo(map);
     else { circulo.setLatLng(p); circulo.setRadius(d.radio); }
-  } else if (circulo) { map.removeLayer(circulo); circulo = null; }
+    } else if (circulo) { map.removeLayer(circulo); circulo = null; }
+
+  extras.clearLayers();
+  (d.marcadores || []).forEach(function (m) {
+    L.circleMarker([m.lat, m.lng], { radius: 9, color: '#fff', weight: 2, fillColor: '#FF8C42', fillOpacity: 0.95 })
+      .bindTooltip(m.texto, { permanent: true, direction: 'top', offset: [0, -8] })
+      .addTo(extras);
+  });
+
+  if (d.encuadrar && circulo) {
+    var limites = circulo.getBounds();
+    extras.eachLayer(function (l) { limites.extend(l.getLatLng()); });
+    map.fitBounds(limites, { padding: [30, 30] });
+  }
 });
 </script>
 </body>
 </html>`;
 }
 
-export default function Mapa({ ubicacion, titulo, ruta, radio, ajustar, style }) {
+export default function Mapa({ ubicacion, titulo, ruta, radio, ajustar, marcadores, encuadrar, style }) {
   const marco = useRef(null);
   const listo = useRef(false);
   // El HTML se genera una sola vez: si cambiara, el iframe se recargaría
@@ -72,7 +85,7 @@ export default function Mapa({ ubicacion, titulo, ruta, radio, ajustar, style })
   const enviar = () => {
     if (!listo.current) return;
     marco.current?.contentWindow?.postMessage(
-      { tipo: 'mapa', lat: ubicacion.latitud, lng: ubicacion.longitud, titulo, ruta, radio, ajustar },
+            { tipo: 'mapa', lat: ubicacion.latitud, lng: ubicacion.longitud, titulo, ruta, radio, ajustar, marcadores, encuadrar },
       '*'
     );
   };
@@ -84,6 +97,8 @@ export default function Mapa({ ubicacion, titulo, ruta, radio, ajustar, style })
     radio,
     ajustar,
     JSON.stringify(ruta ?? null),
+    JSON.stringify(marcadores ?? null),
+    encuadrar,
   ]);
 
   return (
