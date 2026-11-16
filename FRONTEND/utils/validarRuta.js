@@ -9,7 +9,9 @@ export const DIAS = [
   { clave: 'dom', etiqueta: 'Dom' },
 ];
 
-export const horaValida = (h) => /^([01]\d|2[0-3]):[0-5]\d$/.test(h);
+export function horaValida(hora) {
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(String(hora));
+}
 
 function numero(texto) {
   const limpio = String(texto).trim().replace(',', '.');
@@ -20,19 +22,11 @@ function numero(texto) {
 
 // "0730" -> "07:30" mientras se escribe
 export function formatearHora(texto) {
-  let d = texto.replace(/\D/g, '').slice(0, 4);
-
-  // Primer dígito de la hora: si es 3-9, se completa con 0 (6 -> 06)
-  if (d.length >= 1 && Number(d[0]) > 2) d = '0' + d;
+  let d = String(texto).replace(/\D/g, '').slice(0, 4);
+  if (d.length >= 1 && Number(d[0]) > 2) d = '0' + d; // "7" -> "07"
   d = d.slice(0, 4);
-
-  // Si empieza con 2, el segundo dígito máximo es 3 (24 -> 23)
-  if (d.length >= 2 && d[0] === '2' && Number(d[1]) > 3) d = '23' + d.slice(2);
-
-  // Primer dígito de los minutos: máximo 5 (7 -> 07)
-  if (d.length >= 3 && Number(d[2]) > 5) d = d.slice(0, 2) + '0' + d[2];
-  d = d.slice(0, 4);
-
+  if (d.length >= 2 && Number(d.slice(0, 2)) > 23) d = '23' + d.slice(2);
+  if (d.length >= 3 && Number(d[2]) > 5) d = d.slice(0, 2) + '5' + d.slice(3);
   return d.length > 2 ? `${d.slice(0, 2)}:${d.slice(2)}` : d;
 }
 
