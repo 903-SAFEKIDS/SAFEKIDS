@@ -24,8 +24,12 @@ async function pedir(ruta, opciones = {}) {
   return datos;
 }
 
-export const generarPrediccion = (menor, simular = false) =>
-  pedir('/predicciones/generar', { method: 'POST', body: JSON.stringify({ menor, simular }) });
+// Predicción de este momento (se calcula sola con el historial y las rutas del padre)
+export const prediccionActual = (menor, latitud, longitud, minutosSinSenal = 0) =>
+  pedir('/predicciones/actual', {
+    method: 'POST',
+    body: JSON.stringify({ menor, latitud, longitud, minutos_sin_senal: minutosSinSenal }),
+  });
 
-export const ultimaPrediccion = (menor) =>
-  pedir(`/predicciones/ultima?menor=${encodeURIComponent(menor)}`);
+export const renombrarLugar = (id, nombre) =>
+  pedir(`/lugares-frecuentes/${id}`, { method: 'PUT', body: JSON.stringify({ nombre }) });
