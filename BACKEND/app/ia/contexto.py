@@ -1,6 +1,8 @@
+import re
 import unicodedata
 from datetime import timedelta
 
+from app.ia.destinos import PESO_TRANSICION
 from app.ia.geo import distancia_m
 from app.ia.tiempo import a_local, a_utc, dia_semana, minuto_del_dia
 
@@ -8,7 +10,8 @@ DIAS = ["lun", "mar", "mie", "jue", "vie", "sab", "dom"]
 RADIO_UNION_M = 100  # dos puntos más cerca que esto cuentan como el mismo lugar
 
 PESO_RUTA_HABITUAL = 6  # hoy y dentro del horario de la ruta
-PESO_RUTA_FUERA_DE_HORARIO = 1  # hoy, pero fuera de su horario
+PESO_RUTA_FUERA_DE_HORARIO = 1  # hoy, pero todavía no es su horario
+PESO_REGRESO = 4  # hoy ya pasó el horario de la ruta: lo más probable es que vuelva al origen
 PESO_SALIDA_EN_CURSO = 8  # salida autorizada (ruta temporal) que ocurre ahora
 PESO_SALIDA_PROXIMA = 3  # salida autorizada que empieza en la próxima hora
 
@@ -21,6 +24,15 @@ def _minutos(hora: str) -> int:
 def _normalizar(texto: str) -> str:
     sin_acentos = unicodedata.normalize("NFD", texto.lower())
     return "".join(c for c in sin_acentos if unicodedata.category(c) != "Mn").strip()
+
+
+def _partir_nombre(nombre: str) -> tuple[str, str]:
+    """«casa a escuela» -> ("Casa", "Escuela"). Sin ese formato: ("Casa", el nombre completo)."""
+    nombre = (nombre or "").strip()
+    partes = re.split(r"\s+a\s+", nombre, flags=re.IGNORECASE)
+    if len(partes) == 2 and partes[0].strip() and partes[1].strip():
+        return partes[0].strip().capitalize(), partes[1].strip().capitalize()
+    return "Casa", (nombre or "Destino").capitalize()
 
 
 def _extremos(ruta: dict):
@@ -46,6 +58,8 @@ def _asegurar_lugar(lugares: list[dict], lat: float, lng: float, nombre: str) ->
     """El lugar que está en ese punto; si no existe, lo agrega a la lista."""
     existente = _lugar_cercano(lugares, lat, lng)
     if existente is not None:
+        if existente["nombre"].startswith("Lugar frecuente"):
+            existente["nombre"] = nombre  # el nombre de la ruta es más útil que uno genérico
         return existente
     nuevo = {
         "id": max((l["id"] for l in lugares), default=-1) + 1,
@@ -76,8 +90,10 @@ def _coordenadas_de_destino(destino: dict, guardados: list[dict]):
 def aplicar_rutas(lugares, habituales, temporales, guardados, ahora):
     """Suma al análisis las rutas habituales y las rutas temporales (salidas autorizadas).
 
-    - Los extremos de cada ruta habitual pasan a ser lugares candidatos.
-    - Si la ruta es de hoy, su destino gana evidencia (más si estamos dentro de su horario).
+    - Los extremos de cada ruta habitual pasan a ser lugares candidatos, con el nombre de la
+      ruta ("casa a escuela" -> "Casa" y "Escuela").
+    - Si la ruta es de hoy: antes de su horario o dentro de él, su destino gana evidencia (más
+      dentro del horario); después de su horario, gana evidencia el regreso al origen.
     - Una salida autorizada en curso (o que empieza en menos de una hora) da evidencia a su destino,
       si se puede ubicar en el mapa.
 
@@ -97,8 +113,9 @@ def aplicar_rutas(lugares, habituales, temporales, guardados, ahora):
             continue
         nombre = ruta.get("nombre") or "sin nombre"
         (olat, olng), (dlat, dlng) = extremos
-        _asegurar_lugar(lugares, olat, olng, f"Salida de la ruta «{nombre}»")
-        destino = _asegurar_lugar(lugares, dlat, dlng, f"Destino de la ruta «{nombre}»")
+        nombre_origen, nombre_destino = _partir_nombre(ruta.get("nombre"))
+        origen = _asegurar_lugar(lugares, olat, olng, nombre_origen)
+        destino = _asegurar_lugar(lugares, dlat, dlng, nombre_destino)
         if hoy not in (ruta.get("dias") or []):
             continue
         try:
@@ -108,9 +125,14 @@ def aplicar_rutas(lugares, habituales, temporales, guardados, ahora):
         horario = f"{ruta['hora_inicio']} a {ruta['hora_fin']}"
         if inicio - 30 <= minuto <= fin + 30:
             peso, motivo = PESO_RUTA_HABITUAL, f"Ruta habitual «{nombre}»: hoy de {horario}"
+            evidencias.setdefault(destino["id"], []).append({"peso": peso, "motivo": motivo})
+        elif minuto > fin + 30:
+            if origen["id"] != destino["id"]:
+                motivo = f"Después de «{nombre}» (hoy, de {horario}) suele volver a {origen['nombre']}"
+                evidencias.setdefault(origen["id"], []).append({"peso": PESO_REGRESO, "motivo": motivo})
         else:
             peso, motivo = PESO_RUTA_FUERA_DE_HORARIO, f"Ruta habitual «{nombre}» (hoy, de {horario})"
-        evidencias.setdefault(destino["id"], []).append({"peso": peso, "motivo": motivo})
+            evidencias.setdefault(destino["id"], []).append({"peso": peso, "motivo": motivo})
 
     for ruta in temporales:
         if ruta.get("estado") == "cancelada":
@@ -141,15 +163,24 @@ def aplicar_rutas(lugares, habituales, temporales, guardados, ahora):
 
 
 def combinar_con_evidencias(destinos: list[dict], evidencias: dict, suavizado: float = 0.5) -> list[dict]:
-    """Suma la evidencia de las rutas a las llegadas del historial y repite las probabilidades.
+    """Suma la evidencia de las rutas a las señales del historial y repite las probabilidades.
 
     Cada destino trae `motivos` (por qué se propone) y `evidencia` (puntos a favor).
     """
     pesos, motivos = {}, {}
     for d in destinos:
         extra = evidencias.get(d["lugar_id"], [])
-        pesos[d["lugar_id"]] = d["llegadas_observadas"] + sum(e["peso"] for e in extra)
-        lista = [e["motivo"] for e in extra]
+        transiciones = d.get("transiciones", 0)
+        pesos[d["lugar_id"]] = (
+            d["llegadas_observadas"] + PESO_TRANSICION * transiciones + sum(e["peso"] for e in extra)
+        )
+        lista = []
+        if transiciones:
+            lista.append(
+                f"Desde {d.get('desde') or 'su último lugar'} fue aquí {transiciones} de "
+                f"{d['salidas_desde_aqui']} veces a esta hora"
+            )
+        lista += [e["motivo"] for e in extra]
         if d["llegadas_observadas"]:
             lista.append(f"Ha llegado aquí {d['llegadas_observadas']} veces a esta hora y día")
         motivos[d["lugar_id"]] = lista

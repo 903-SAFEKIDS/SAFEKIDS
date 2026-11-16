@@ -23,7 +23,7 @@ router = APIRouter()
 
 _bearer = HTTPBearer(auto_error=False)
 
-MIN_PUNTOS_REALES = 500  # con menos puntos reales se usa el historial simulado
+MIN_PUNTOS_REALES = 60  # con menos puntos reales no hay suficiente historial para aprender
 MAX_PUNTOS = 20000
 RADIO_GUARDADO_M = 100  # un lugar detectado se une al guardado que esté a menos de esto
 
@@ -148,11 +148,10 @@ def prediccion_actual(datos: ActualIn, usuario_id: str = Depends(usuario_actual)
     rutas temporales, y la guarda (una por menor, se actualiza cada vez)."""
     menor = datos.menor.strip() or "Pablo"
     puntos = _historial_real(usuario_id, menor)
-    simulados = len(puntos) < MIN_PUNTOS_REALES
+    simulados = False
     base = None
-    if simulados:
-        puntos, lugares, visitas = _historial_simulado()
-        base = (lugares, visitas)
+    if len(puntos) < MIN_PUNTOS_REALES:
+        base = ([], [])  # poco historial: la predicción se apoya solo en las rutas
 
     habituales = list(rutas_habituales.find({"usuario_id": usuario_id}))
     temporales = list(rutas_temporales.find({"usuario_id": usuario_id, "menor": menor}))
