@@ -20,7 +20,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 from pymongo.errors import DuplicateKeyError
 
-from app.alertas import RUTA_HABITUAL_SIMULADA, evaluar_ubicacion
+from app.alertas import router as alertas_router
 from app.database import rutas_temporales, usuarios
 
 
@@ -41,6 +41,7 @@ app.include_router(rutas_router)
 app.include_router(predicciones_router)
 from app.notificaciones import router as notificaciones_router
 app.include_router(notificaciones_router)
+app.include_router(alertas_router)
 
 # Abierto para desarrollo (permite que el navegador llame al backend)
 app.add_middleware(
@@ -397,17 +398,3 @@ def cancelar_ruta_temporal(ruta_id: str, usuario_id: str = Depends(usuario_actua
     return {"mensaje": "Ruta cancelada."}
 
 
-# ---------- Evaluación de ubicación (regla de alertas) ----------
-
-class UbicacionIn(BaseModel):
-    menor: str = "Pablo"
-    latitud: float
-    longitud: float
-
-
-@app.post("/alertas/evaluar")
-def evaluar(datos: UbicacionIn, usuario_id: str = Depends(usuario_actual)):
-    rutas = list(rutas_temporales.find({"usuario_id": usuario_id, "menor": datos.menor}))
-    return evaluar_ubicacion(
-        datos.latitud, datos.longitud, datos.menor, RUTA_HABITUAL_SIMULADA, rutas
-    )
