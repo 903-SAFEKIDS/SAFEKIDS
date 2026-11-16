@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -8,7 +8,7 @@ import BotonGlass from '../components/BotonGlass';
 import { useMarco } from '../components/MarcoApp';
 import { colors } from '../styles/colors';
 import { suscribirUbicacion } from '../services/ubicacionService';
-import { evaluarUbicacion } from '../services/rutasService';
+import { evaluarUbicacion, guardarPuntosRecorrido } from '../services/rutasService';
 
 // Los estados usan colores sólidos (nunca vidrio) para leerse de un vistazo
 const ESTADOS = {
@@ -17,14 +17,27 @@ const ESTADOS = {
   alerta: { texto: 'ALERTA', color: colors.riesgoAlto },
 };
 
-const SITUACION = {
-  en_casa: 'está en casa',
-  en_camino: 'va camino a la escuela',
-  en_escuela: 'está en la escuela',
-  fuera_de_ruta: 'está fuera de su ruta habitual',
-};
-
 const TINTE_MAPA = 'rgba(255,255,255,0.62)';
+
+// Cada cuánto se guarda una posición en el historial de recorridos
+const INTERVALO_REGISTRO_MS = 20000;
+
+// Dónde está el menor, con los nombres reales de su ruta ("Casa", "Box", "Escuela"...)
+function textoSituacion(datos, evaluacion) {
+  if (evaluacion?.ruta_autorizada) return 'va por una ruta autorizada';
+  switch (datos.situacion) {
+    case 'en_casa':
+      return `está en ${datos.origen}`;
+    case 'en_camino':
+      return `va camino a ${datos.destino}`;
+    case 'en_escuela':
+      return `está en ${datos.destino}`;
+    case 'fuera_de_ruta':
+      return 'está fuera de su ruta habitual';
+    default:
+      return '';
+  }
+}
 
 function Dato({ etiqueta, valor, color }) {
   return (
@@ -45,7 +58,7 @@ export default function InicioScreen({ navigation }) {
   const [evaluacion, setEvaluacion] = useState(null);
   const [desvio, setDesvio] = useState(false);
 
-  // Ubicación en tiempo real (simulada por ahora)
+  // Ubicación en tiempo real (sigue la ruta habitual guardada)
   useEffect(() => suscribirUbicacion(setDatos, 3000, desvio), [desvio]);
 
   // El backend decide si hay alerta, tomando en cuenta las rutas autorizadas
@@ -60,6 +73,21 @@ export default function InicioScreen({ navigation }) {
     };
   }, [datos]);
 
+  // Cada posición que llega se guarda en el historial (como hará la pulsera)
+  const ultimoRegistro = useRef(0);
+  useEffect(() => {
+    if (!datos) return;
+    if (Date.now() - ultimoRegistro.current < INTERVALO_REGISTRO_MS) return;
+    ultimoRegistro.current = Date.now();
+    guardarPuntosRecorrido(datos.nombre, [
+      {
+        latitud: datos.latitud,
+        longitud: datos.longitud,
+        momento: new Date().toISOString(),
+      },
+    ]).catch(() => {});
+  }, [datos]);
+
   if (!datos) {
     return (
       <View style={styles.cargando}>
@@ -70,9 +98,7 @@ export default function InicioScreen({ navigation }) {
 
   const estado = ESTADOS[evaluacion?.estado ?? datos.estado];
   const riesgo = evaluacion?.riesgo ?? datos.riesgo;
-  const situacionTexto = evaluacion?.ruta_autorizada
-    ? 'va por una ruta autorizada'
-    : SITUACION[datos.situacion];
+  const situacionTexto = textoSituacion(datos, evaluacion);
 
   return (
     <View style={styles.pantalla}>
@@ -131,9 +157,9 @@ export default function InicioScreen({ navigation }) {
           <Dato etiqueta="Riesgo" valor={riesgo} color={estado.color} />
         </View>
 
-        <Pressable onPress={() => setDesvio(!desvio)} style={styles.demo}>
-          <Text style={styles.demoTexto}>
-            {desvio ? 'Volver a la ruta habitual (demo)' : 'Simular desvío de ruta (demo)'}
+        <Pressable onPress={() => setDesvio(!desvio)} style={styles.simular}>
+          <Text style={styles.simularTexto}>
+            {desvio ? 'Volver a la ruta habitual' : 'Simular desvío de ruta'}
           </Text>
         </Pressable>
 
@@ -196,7 +222,7 @@ const styles = StyleSheet.create({
   datoFila: { flexDirection: 'row', alignItems: 'center', marginTop: 2 },
   punto: { width: 9, height: 9, borderRadius: 5, marginRight: 6 },
   datoValor: { fontSize: 16, fontWeight: '700', color: colors.texto },
-  demo: { alignSelf: 'flex-start', marginBottom: 12 },
-  demoTexto: { fontSize: 13, fontWeight: '700', color: colors.boton },
+  simular: { alignSelf: 'flex-start', marginBottom: 12 },
+  simularTexto: { fontSize: 13, fontWeight: '700', color: colors.boton },
   boton: { alignSelf: 'stretch' },
 });

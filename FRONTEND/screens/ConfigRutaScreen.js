@@ -13,12 +13,18 @@ import {
   guardarRutaHabitual,
   listarRutasHabituales,
 } from '../services/rutasService';
-import { DIAS, construirRuta, formatearHora } from '../utils/validarRuta';
+import { DIAS, construirRuta, formatearHora, horaValida } from '../utils/validarRuta';
+import { estimarRuta, sumarMinutos } from '../utils/calcularRuta';
 
 // Temporal: cuando existan los perfiles de los menores, vendrá del menor elegido
 const MENOR_ID = 'pablo';
 
 const ETIQUETA_DIA = Object.fromEntries(DIAS.map((d) => [d.clave, d.etiqueta]));
+
+const MODOS = [
+  { clave: 'pie', etiqueta: 'A pie' },
+  { clave: 'carro', etiqueta: 'Carro / transporte' },
+];
 
 export default function ConfigRutaScreen({ navigation }) {
   const insets = useSafeAreaInsets();
@@ -27,9 +33,11 @@ export default function ConfigRutaScreen({ navigation }) {
   const [nombre, setNombre] = useState('');
   const [dias, setDias] = useState(['lun', 'mar', 'mie', 'jue', 'vie']);
   const [horaInicio, setHoraInicio] = useState('');
-  const [horaFin, setHoraFin] = useState('');
+  const [modo, setModo] = useState('pie');
   const [origen, setOrigen] = useState({ latitud: '', longitud: '' });
   const [destino, setDestino] = useState({ latitud: '', longitud: '' });
+  const [estimado, setEstimado] = useState(null);
+  const [calculando, setCalculando] = useState(false);
   const [error, setError] = useState('');
   const [exito, setExito] = useState('');
   const [guardando, setGuardando] = useState(false);
@@ -51,6 +59,29 @@ export default function ConfigRutaScreen({ navigation }) {
     cargar();
   }, [cargar]);
 
+  // Calcula duración y distancia solo con los puntos (como al pedir un Uber)
+  useEffect(() => {
+    if (!origen.latitud || !destino.latitud) {
+      setEstimado(null);
+      return;
+    }
+    let vigente = true;
+    setCalculando(true);
+    estimarRuta(origen, destino, modo).then((r) => {
+      if (vigente) {
+        setEstimado(r);
+        setCalculando(false);
+      }
+    });
+    return () => {
+      vigente = false;
+    };
+  }, [origen.latitud, origen.longitud, destino.latitud, destino.longitud, modo]);
+
+  // La hora de llegada ya no se escribe: se calcula
+  const horaFin =
+    estimado && horaValida(horaInicio) ? sumarMinutos(horaInicio, estimado.minutos) : null;
+
   const alternarDia = (clave) =>
     setDias((actuales) =>
       actuales.includes(clave) ? actuales.filter((d) => d !== clave) : [...actuales, clave]
@@ -58,7 +89,24 @@ export default function ConfigRutaScreen({ navigation }) {
 
   const guardar = async () => {
     setExito('');
-    const resultado = construirRuta({ nombre, dias, horaInicio, horaFin, origen, destino }, MENOR_ID);
+
+    if (!horaValida(horaInicio)) {
+      setError('Escribe una hora de salida válida en formato de 24 horas (de 00:00 a 23:59).');
+      return;
+    }
+    if (!estimado) {
+      setError('Marca el origen y el destino para calcular la llegada.');
+      return;
+    }
+    if (!horaFin) {
+      setError('La llegada no puede pasar de las 23:59. Elige una hora de salida más temprana.');
+      return;
+    }
+
+    const resultado = construirRuta(
+      { nombre, dias, horaInicio, horaFin, origen, destino },
+      MENOR_ID
+    );
     if (resultado.error) {
       setError(resultado.error);
       return;
@@ -70,7 +118,6 @@ export default function ConfigRutaScreen({ navigation }) {
       setExito('Ruta guardada correctamente.');
       setNombre('');
       setHoraInicio('');
-      setHoraFin('');
       await cargar();
     } catch (e) {
       setError(e.message);
@@ -129,27 +176,32 @@ export default function ConfigRutaScreen({ navigation }) {
           })}
         </View>
 
-        <View style={styles.fila}>
-          <CampoGlass
-            style={[styles.mitad, { marginRight: 10 }]}
-            icono="time-outline"
-            etiqueta="Hora de inicio"
-            value={horaInicio}
-            onChangeText={(t) => setHoraInicio(formatearHora(t))}
-            placeholder="07:30"
-            keyboardType="number-pad"
-            maxLength={5}
-          />
-          <CampoGlass
-            style={styles.mitad}
-            icono="time-outline"
-            etiqueta="Hora de fin"
-            value={horaFin}
-            onChangeText={(t) => setHoraFin(formatearHora(t))}
-            placeholder="08:15"
-            keyboardType="number-pad"
-            maxLength={5}
-          />
+        <CampoGlass
+          style={{ marginTop: 10 }}
+          icono="time-outline"
+          etiqueta="Hora de salida (24 h)"
+          value={horaInicio}
+          onChangeText={(t) => setHoraInicio(formatearHora(t))}
+          placeholder="07:30"
+          keyboardType="number-pad"
+          maxLength={5}
+        />
+
+        <Text style={styles.etiqueta}>¿Cómo se traslada?</Text>
+        <View style={styles.dias}>
+          {MODOS.map((m) => (
+            <Pressable
+              key={m.clave}
+              onPress={() => setModo(m.clave)}
+              style={[styles.dia, modo === m.clave && styles.diaActivo]}
+              accessibilityRole="button"
+              accessibilityState={{ selected: modo === m.clave }}
+            >
+              <Text style={[styles.diaTexto, modo === m.clave && styles.diaTextoActivo]}>
+                {m.etiqueta}
+              </Text>
+            </Pressable>
+          ))}
         </View>
 
         <SelectorUbicacion
@@ -164,6 +216,19 @@ export default function ConfigRutaScreen({ navigation }) {
           value={destino}
           onChange={setDestino}
         />
+
+        {calculando ? (
+          <ActivityIndicator color={colors.boton} style={{ marginTop: 16 }} />
+        ) : estimado ? (
+          <View style={styles.estimado}>
+            <Ionicons name="time" size={18} color={colors.moradoMedio} />
+            <Text style={styles.estimadoTexto}>
+              {estimado.minutos} min · {(estimado.metros / 1000).toFixed(1)} km
+              {horaFin ? ` · Llegada estimada: ${horaFin}` : ''}
+              {estimado.aproximado ? ' (aproximado)' : ''}
+            </Text>
+          </View>
+        ) : null}
 
         {error ? (
           <View style={[styles.mensaje, styles.mensajeError]}>
@@ -222,8 +287,6 @@ const styles = StyleSheet.create({
   panel: { alignSelf: 'stretch', maxWidth: 560, width: '100%' },
   panelInterior: { padding: 18 },
   etiqueta: { marginTop: 14, marginBottom: 6, color: colors.texto, fontSize: 14, fontWeight: '600' },
-  fila: { flexDirection: 'row', marginTop: 10 },
-  mitad: { flex: 1 },
   dias: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   dia: {
     minWidth: 44,
@@ -239,6 +302,15 @@ const styles = StyleSheet.create({
   diaActivo: { backgroundColor: colors.boton, borderColor: colors.boton },
   diaTexto: { color: colors.moradoMedio, fontSize: 14, fontWeight: '700' },
   diaTextoActivo: { color: colors.blanco },
+  estimado: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 16,
+    padding: 10,
+    borderRadius: 12,
+    backgroundColor: 'rgba(156,68,153,0.10)',
+  },
+  estimadoTexto: { flex: 1, marginLeft: 8, color: colors.moradoMedio, fontSize: 14, fontWeight: '700' },
   mensaje: { flexDirection: 'row', alignItems: 'center', marginTop: 16, padding: 10, borderRadius: 12 },
   mensajeError: { backgroundColor: 'rgba(179,38,30,0.10)' },
   mensajeExito: { backgroundColor: 'rgba(46,158,107,0.14)' },

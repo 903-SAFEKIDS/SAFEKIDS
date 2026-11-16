@@ -1,55 +1,40 @@
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from app.database import dispositivos, notificaciones
-from app.firebase_config import enviar_notificacion_push
+from datetime import datetime, timezone
 
-router = APIRouter()
+from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
 
-# Estructura de datos para recibir el token del dispositivo desde el Frontend
-class TokenRequest(BaseModel):
-    user_id: str
-    token: str
+from app.autenticacion import usuario_actual
+from app.database import tokens_push
 
-# Estructura para enviar la notificación
-class NotificacionRequest(BaseModel):
-    user_id: str
-    titulo: str
-    cuerpo: str
+router = APIRouter(prefix="/notificaciones", tags=["notificaciones"])
 
-@router.post("/registrar-dispositivo")
-def registrar_dispositivo(data: TokenRequest):
-    try:
-        # Guardar o actualizar el token del dispositivo en la colección de MongoDB
-        dispositivos.update_one(
-            {"user_id": data.user_id},
-            {"$set": {"token": data.token}},
-            upsert=True
-        )
-        return {"mensaje": "Token de dispositivo registrado con éxito en MongoDB"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/enviar-alerta")
-def enviar_alerta(data: NotificacionRequest):
-    # 1. Buscar el token del dispositivo en la base de datos de MongoDB
-    dispositivo = dispositivos.find_one({"user_id": data.user_id})
-    
-    if not dispositivo or "token" not in dispositivo:
-        raise HTTPException(status_code=404, detail="Dispositivo o token no encontrado para este usuario")
-    
-    token_fcm = dispositivo["token"]
-    
-    # 2. Enviar la notificación usando Firebase
-    exito = enviar_notificacion_push(token_fcm, data.titulo, data.cuerpo)
-    
-    if exito:
-        # Opcional: Guardar el registro en la colección de notificaciones de MongoDB
-        notificaciones.insert_one({
-            "user_id": data.user_id,
-            "titulo": data.titulo,
-            "cuerpo": data.cuerpo,
-            "estado": "enviado"
-        })
-        return {"mensaje": "Notificación push enviada y registrada correctamente"}
-    else:
-        raise HTTPException(status_code=500, detail="No se pudo enviar la notificación push a través de Firebase")
+class TokenIn(BaseModel):
+    token: str = Field(min_length=20)
+    plataforma: str = "web"
+
+
+@router.post("/dispositivo", status_code=201)
+def registrar_dispositivo(datos: TokenIn, usuario_id: str = Depends(usuario_actual)):
+    """Guarda el token de este navegador para mandarle las alertas."""
+    ahora = datetime.now(timezone.utc)
+    tokens_push.update_one(
+        {"token": datos.token},
+        {
+            "$set": {
+                "usuario_id": usuario_id,
+                "plataforma": datos.plataforma,
+                "actualizado_en": ahora,
+            },
+            "$setOnInsert": {"creado_en": ahora},
+        },
+        upsert=True,
+    )
+    return {"mensaje": "Notificaciones activadas en este dispositivo."}
+
+
+@router.post("/dispositivo/baja")
+def quitar_dispositivo(datos: TokenIn, usuario_id: str = Depends(usuario_actual)):
+    """Se usa al cerrar sesión para dejar de recibir alertas en este navegador."""
+    tokens_push.delete_one({"token": datos.token, "usuario_id": usuario_id})
+    return {"mensaje": "Notificaciones desactivadas en este dispositivo."}

@@ -21,6 +21,7 @@ alertas = db["alertas"]
 lugares_frecuentes = db["lugares_frecuentes"]
 predicciones = db["predicciones"]
 notificaciones = db["notificaciones"]
+tokens_push = db["tokens_push"]
 
 
 def probar_conexion():

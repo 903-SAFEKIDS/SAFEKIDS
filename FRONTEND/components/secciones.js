@@ -5,6 +5,6 @@ export const SECCIONES = [
   { nombre: 'Rutas temporales', icono: 'time' },
   { nombre: 'Alertas', icono: 'notifications' },
   { nombre: 'Sistema', icono: 'settings' },
-  { nombre: 'Historial', icono: 'footsteps-outline' },
+  { nombre: 'Historial', icono: 'footsteps' },
   { nombre: 'Predicción', icono: 'compass' },
 ];
