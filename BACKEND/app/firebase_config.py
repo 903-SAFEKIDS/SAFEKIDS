@@ -1,29 +1,50 @@
 import os
+
 import firebase_admin
 from firebase_admin import credentials, messaging
 
-cred_path = os.getenv("FIREBASE_CREDENTIALS_PATH", "app/serviceAccountKey.json")
+RUTA_CREDENCIALES = os.getenv("FIREBASE_CREDENTIALS_PATH", "app/serviceAccountKey.json")
+# Página que se abre al tocar la notificación
+URL_APP = os.getenv("FRONTEND_URL", "https://safekids-17k2.onrender.com")
 
-if not firebase_admin._apps:
+firebase_listo = False
+if firebase_admin._apps:
+    firebase_listo = True
+else:
     try:
-        cred = credentials.Certificate(cred_path)
-        firebase_admin.initialize_app(cred)
-        print("¡Firebase inicializado correctamente!")
+        firebase_admin.initialize_app(credentials.Certificate(RUTA_CREDENCIALES))
+        firebase_listo = True
+        print("[Firebase] Inicializado correctamente.")
     except Exception as e:
-        print(f"Aviso: No se pudo inicializar Firebase automáticamente: {e}")
+        print(f"[Firebase] No se pudo inicializar: {e}")
 
-def enviar_notificacion_push(token_dispositivo: str, titulo: str, cuerpo: str):
+
+def enviar_push(tokens: list[str], titulo: str, cuerpo: str, datos: dict | None = None) -> list[str]:
+    """Envía una notificación a todos los dispositivos del padre.
+
+    Devuelve los tokens que ya no son válidos para que se borren de la base.
+    """
+    if not firebase_listo or not tokens:
+        return []
+
+    mensaje = messaging.MulticastMessage(
+        tokens=tokens,
+        notification=messaging.Notification(title=titulo, body=cuerpo),
+        data={k: str(v) for k, v in (datos or {}).items()},
+        webpush=messaging.WebpushConfig(
+            fcm_options=messaging.WebpushFCMOptions(link=URL_APP),
+        ),
+    )
     try:
-        message = messaging.Message(
-            notification=messaging.Notification(
-                title=titulo,
-                body=cuerpo,
-            ),
-            token=token_dispositivo,
-        )
-        response = messaging.send(message)
-        print("Notificación enviada con éxito:", response)
-        return True
+        respuesta = messaging.send_each_for_multicast(mensaje)
     except Exception as e:
-        print(f"Error al enviar la notificación: {e}")
-        return False
+        print(f"[Firebase] Error al enviar la notificación: {e}")
+        return []
+
+    invalidos = []
+    for token, r in zip(tokens, respuesta.responses):
+        if not r.success and isinstance(
+            r.exception, (messaging.UnregisteredError, messaging.SenderIdMismatchError)
+        ):
+            invalidos.append(token)
+    return invalidos
