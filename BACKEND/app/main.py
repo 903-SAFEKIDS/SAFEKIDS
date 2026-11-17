@@ -22,6 +22,7 @@ from pymongo.errors import DuplicateKeyError
 
 from app.alertas import router as alertas_router
 from app.database import rutas_temporales, usuarios
+from app.mis_lugares import router as mis_lugares_router
 
 
 # Clave para firmar los tokens de sesión. Agrega SECRET_KEY en tu .env;
@@ -42,6 +43,7 @@ app.include_router(predicciones_router)
 from app.notificaciones import router as notificaciones_router
 app.include_router(notificaciones_router)
 app.include_router(alertas_router)
+app.include_router(mis_lugares_router)
 
 # Abierto para desarrollo (permite que el navegador llame al backend)
 app.add_middleware(

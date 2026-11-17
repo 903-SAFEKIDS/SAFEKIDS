@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import GlassCard from '../components/GlassCard';
 import CampoGlass from '../components/CampoGlass';
 import BotonGlass from '../components/BotonGlass';
-import SelectorUbicacion from '../components/SelectorUbicacion';
+import SelectorLugar from '../components/SelectorLugar';
 import { useMarco } from '../components/MarcoApp';
 import { colors } from '../styles/colors';
 import {
@@ -13,11 +13,13 @@ import {
   guardarRutaHabitual,
   listarRutasHabituales,
 } from '../services/rutasService';
+import { eliminarLugar, listarLugares } from '../services/lugaresService';
 import { DIAS, construirRuta, formatearHora, horaValida } from '../utils/validarRuta';
 import { estimarRuta, sumarMinutos } from '../utils/calcularRuta';
 
 // Temporal: cuando existan los perfiles de los menores, vendrá del menor elegido
 const MENOR_ID = 'pablo';
+const MENOR = 'Pablo';
 
 const ETIQUETA_DIA = Object.fromEntries(DIAS.map((d) => [d.clave, d.etiqueta]));
 
@@ -26,16 +28,31 @@ const MODOS = [
   { clave: 'carro', etiqueta: 'Carro / transporte' },
 ];
 
+const normalizar = (t) =>
+  t
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+
+// Un lugar guardado -> el mismo formato de punto que usa el resto de la pantalla
+const aPunto = (lugar) =>
+  lugar
+    ? { latitud: Number(lugar.lat).toFixed(6), longitud: Number(lugar.lng).toFixed(6) }
+    : { latitud: '', longitud: '' };
+
 export default function ConfigRutaScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const { inferior, movil } = useMarco();
 
+  const [lugares, setLugares] = useState([]);
+  const [origenId, setOrigenId] = useState(null);
+  const [destinoId, setDestinoId] = useState(null);
   const [nombre, setNombre] = useState('');
+  const [nombreEditado, setNombreEditado] = useState(false);
   const [dias, setDias] = useState(['lun', 'mar', 'mie', 'jue', 'vie']);
   const [horaInicio, setHoraInicio] = useState('');
   const [modo, setModo] = useState('pie');
-  const [origen, setOrigen] = useState({ latitud: '', longitud: '' });
-  const [destino, setDestino] = useState({ latitud: '', longitud: '' });
   const [estimado, setEstimado] = useState(null);
   const [calculando, setCalculando] = useState(false);
   const [error, setError] = useState('');
@@ -44,6 +61,11 @@ export default function ConfigRutaScreen({ navigation }) {
 
   const [rutas, setRutas] = useState([]);
   const [cargandoLista, setCargandoLista] = useState(true);
+
+  const origenLugar = lugares.find((l) => l.id === origenId) ?? null;
+  const destinoLugar = lugares.find((l) => l.id === destinoId) ?? null;
+  const origen = aPunto(origenLugar);
+  const destino = aPunto(destinoLugar);
 
   const cargar = useCallback(async () => {
     try {
@@ -55,9 +77,32 @@ export default function ConfigRutaScreen({ navigation }) {
     }
   }, []);
 
+  const cargarLugares = useCallback(async () => {
+    try {
+      const lista = await listarLugares(MENOR);
+      setLugares(lista);
+      return lista;
+    } catch (e) {
+      setError(e.message);
+      return [];
+    }
+  }, []);
+
   useEffect(() => {
     cargar();
-  }, [cargar]);
+    // "Casa" queda elegida como origen si ya existe
+    cargarLugares().then((lista) => {
+      const casa = lista.find((l) => normalizar(l.nombre) === 'casa');
+      if (casa) setOrigenId(casa.id);
+    });
+  }, [cargar, cargarLugares]);
+
+  // El nombre de la ruta se arma solo con los lugares elegidos, hasta que el padre lo cambie
+  useEffect(() => {
+    if (!nombreEditado && origenLugar && destinoLugar) {
+      setNombre(`${origenLugar.nombre} a ${destinoLugar.nombre}`);
+    }
+  }, [origenLugar?.nombre, destinoLugar?.nombre, nombreEditado]);
 
   // Calcula duración y distancia solo con los puntos (como al pedir un Uber)
   useEffect(() => {
@@ -87,15 +132,39 @@ export default function ConfigRutaScreen({ navigation }) {
       actuales.includes(clave) ? actuales.filter((d) => d !== clave) : [...actuales, clave]
     );
 
+  const alCrearLugar = (alElegir) => async (lugar) => {
+    await cargarLugares();
+    alElegir(lugar.id);
+  };
+
+  const quitarLugar = async (lugar) => {
+    try {
+      await eliminarLugar(lugar.id);
+      if (origenId === lugar.id) setOrigenId(null);
+      if (destinoId === lugar.id) setDestinoId(null);
+      await cargarLugares();
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
   const guardar = async () => {
     setExito('');
 
+    if (!origenLugar || !destinoLugar) {
+      setError('Elige el origen y el destino de la ruta.');
+      return;
+    }
+    if (origenLugar.id === destinoLugar.id) {
+      setError('El origen y el destino deben ser lugares distintos.');
+      return;
+    }
     if (!horaValida(horaInicio)) {
       setError('Escribe una hora de salida válida en formato de 24 horas (de 00:00 a 23:59).');
       return;
     }
     if (!estimado) {
-      setError('Marca el origen y el destino para calcular la llegada.');
+      setError('Espera un momento mientras se calcula la llegada.');
       return;
     }
     if (!horaFin) {
@@ -116,7 +185,7 @@ export default function ConfigRutaScreen({ navigation }) {
     try {
       await guardarRutaHabitual(resultado.datos);
       setExito('Ruta guardada correctamente.');
-      setNombre('');
+      setNombreEditado(false);
       setHoraInicio('');
       await cargar();
     } catch (e) {
@@ -150,12 +219,39 @@ export default function ConfigRutaScreen({ navigation }) {
       </Text>
 
       <GlassCard radius={28} style={styles.panel} contentStyle={styles.panelInterior}>
+        <SelectorLugar
+          titulo="Origen"
+          icono="navigate-outline"
+          lugares={lugares}
+          seleccionado={origenId}
+          onSeleccionar={setOrigenId}
+          onCreado={alCrearLugar(setOrigenId)}
+          onEliminar={quitarLugar}
+          bloqueado={destinoId}
+          menor={MENOR}
+        />
+        <SelectorLugar
+          titulo="Destino"
+          icono="flag-outline"
+          lugares={lugares}
+          seleccionado={destinoId}
+          onSeleccionar={setDestinoId}
+          onCreado={alCrearLugar(setDestinoId)}
+          onEliminar={quitarLugar}
+          bloqueado={origenId}
+          menor={MENOR}
+        />
+
         <CampoGlass
+          style={{ marginTop: 16 }}
           icono="map-outline"
           etiqueta="Nombre de la ruta"
           value={nombre}
-          onChangeText={setNombre}
-          placeholder="Casa a escuela"
+          onChangeText={(t) => {
+            setNombre(t);
+            setNombreEditado(t.trim() !== '');
+          }}
+          placeholder="Casa a Escuela"
         />
 
         <Text style={styles.etiqueta}>Días</Text>
@@ -203,19 +299,6 @@ export default function ConfigRutaScreen({ navigation }) {
             </Pressable>
           ))}
         </View>
-
-        <SelectorUbicacion
-          titulo="Origen"
-          icono="navigate-outline"
-          value={origen}
-          onChange={setOrigen}
-        />
-        <SelectorUbicacion
-          titulo="Destino"
-          icono="flag-outline"
-          value={destino}
-          onChange={setDestino}
-        />
 
         {calculando ? (
           <ActivityIndicator color={colors.boton} style={{ marginTop: 16 }} />

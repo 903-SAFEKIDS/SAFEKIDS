@@ -4,12 +4,17 @@ import { Ionicons } from '@expo/vector-icons';
 import GlassCard from '../components/GlassCard';
 import CampoGlass from '../components/CampoGlass';
 import BotonGlass from '../components/BotonGlass';
+import SelectorLugar from '../components/SelectorLugar';
 import { colors } from '../styles/colors';
 import {
   cancelarRutaTemporal,
   crearRutaTemporal,
   listarRutasTemporales,
 } from '../services/rutasService';
+import { eliminarLugar, listarLugares } from '../services/lugaresService';
+import { formatearHora, horaValida } from '../utils/validarRuta';
+
+const MENOR = 'Pablo';
 
 const ESTADO_COLOR = {
   activa: '#2E9E6B',
@@ -18,17 +23,33 @@ const ESTADO_COLOR = {
   cancelada: colors.error,
 };
 
-function hoyISO() {
+const normalizar = (t) =>
+  t
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+
+// Fecha de hoy (más `dias`) como AAAA-MM-DD
+function fechaISO(dias = 0) {
   const d = new Date();
+  d.setDate(d.getDate() + dias);
   const mes = String(d.getMonth() + 1).padStart(2, '0');
   const dia = String(d.getDate()).padStart(2, '0');
   return `${d.getFullYear()}-${mes}-${dia}`;
 }
 
+// Fecha y hora válidas y reales (rechaza cosas como 2026-02-31 o 25:70)
 function aFecha(fecha, hora) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha) || !/^\d{2}:\d{2}$/.test(hora)) return null;
-  const d = new Date(`${fecha}T${hora}:00`);
-  return isNaN(d.getTime()) ? null : d;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha) || !horaValida(hora)) return null;
+  const [a, m, d] = fecha.split('-').map(Number);
+  const [h, mi] = hora.split(':').map(Number);
+  const fechaCompleta = new Date(a, m - 1, d, h, mi, 0);
+  const coincide =
+    fechaCompleta.getFullYear() === a &&
+    fechaCompleta.getMonth() === m - 1 &&
+    fechaCompleta.getDate() === d;
+  return coincide ? fechaCompleta : null;
 }
 
 function formatear(iso) {
@@ -36,10 +57,12 @@ function formatear(iso) {
 }
 
 export default function RutasTemporalesScreen() {
+  const [lugares, setLugares] = useState([]);
+  const [origenId, setOrigenId] = useState(null);
+  const [destinoId, setDestinoId] = useState(null);
   const [nombre, setNombre] = useState('');
-  const [origen, setOrigen] = useState('');
-  const [destino, setDestino] = useState('');
-  const [fecha, setFecha] = useState(hoyISO());
+  const [nombreEditado, setNombreEditado] = useState(false);
+  const [fecha, setFecha] = useState(fechaISO());
   const [horaInicio, setHoraInicio] = useState('');
   const [horaFin, setHoraFin] = useState('');
   const [motivo, setMotivo] = useState('');
@@ -48,6 +71,9 @@ export default function RutasTemporalesScreen() {
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState('');
   const [exito, setExito] = useState('');
+
+  const origenLugar = lugares.find((l) => l.id === origenId) ?? null;
+  const destinoLugar = lugares.find((l) => l.id === destinoId) ?? null;
 
   const cargar = useCallback(async () => {
     try {
@@ -59,35 +85,77 @@ export default function RutasTemporalesScreen() {
     }
   }, []);
 
+  const cargarLugares = useCallback(async () => {
+    try {
+      const lista = await listarLugares(MENOR);
+      setLugares(lista);
+      return lista;
+    } catch (e) {
+      setError(e.message);
+      return [];
+    }
+  }, []);
+
   useEffect(() => {
     cargar();
-  }, [cargar]);
+    // "Casa" queda elegida como origen si ya existe
+    cargarLugares().then((lista) => {
+      const casa = lista.find((l) => normalizar(l.nombre) === 'casa');
+      if (casa) setOrigenId(casa.id);
+    });
+  }, [cargar, cargarLugares]);
+
+  // El nombre de la ruta se arma solo con los lugares elegidos, hasta que el padre lo cambie
+  useEffect(() => {
+    if (!nombreEditado && origenLugar && destinoLugar) {
+      setNombre(`${origenLugar.nombre} a ${destinoLugar.nombre}`);
+    }
+  }, [origenLugar?.nombre, destinoLugar?.nombre, nombreEditado]);
+
+  const alCrearLugar = (alElegir) => async (lugar) => {
+    await cargarLugares();
+    alElegir(lugar.id);
+  };
+
+  const quitarLugar = async (lugar) => {
+    try {
+      await eliminarLugar(lugar.id);
+      if (origenId === lugar.id) setOrigenId(null);
+      if (destinoId === lugar.id) setDestinoId(null);
+      await cargarLugares();
+    } catch (e) {
+      setError(e.message);
+    }
+  };
 
   const guardar = async () => {
     setExito('');
     const inicio = aFecha(fecha, horaInicio);
     const fin = aFecha(fecha, horaFin);
+    if (!origenLugar || !destinoLugar) return setError('Elige el origen y el destino.');
+    if (origenLugar.id === destinoLugar.id)
+      return setError('El origen y el destino deben ser lugares distintos.');
     if (!nombre.trim()) return setError('Escribe un nombre para la ruta.');
-    if (!origen.trim() || !destino.trim()) return setError('Indica el origen y el destino.');
     if (!inicio || !fin)
-      return setError('Usa la fecha como AAAA-MM-DD y las horas como HH:MM (24 h).');
+      return setError('Usa una fecha real como AAAA-MM-DD y horas de 24 h como HH:MM (00:00 a 23:59).');
     if (fin <= inicio) return setError('La hora de fin debe ser posterior a la de inicio.');
+    if (fin <= new Date()) return setError('Ese horario ya pasó. Elige uno futuro.');
 
     setError('');
     setGuardando(true);
     try {
       await crearRutaTemporal({
-        menor: 'Pablo',
+        menor: MENOR,
         nombre: nombre.trim(),
-        origen: { texto: origen.trim() },
-        destino: { texto: destino.trim() },
+        origen: { texto: origenLugar.nombre, lat: origenLugar.lat, lng: origenLugar.lng },
+        destino: { texto: destinoLugar.nombre, lat: destinoLugar.lat, lng: destinoLugar.lng },
         inicio: inicio.toISOString(),
         fin: fin.toISOString(),
         motivo: motivo.trim(),
       });
       setNombre('');
-      setOrigen('');
-      setDestino('');
+      setNombreEditado(false);
+      setDestinoId(null);
       setHoraInicio('');
       setHoraFin('');
       setMotivo('');
@@ -119,57 +187,89 @@ export default function RutasTemporalesScreen() {
 
         <GlassCard radius={28} contentStyle={styles.tarjeta}>
           <Text style={styles.seccion}>Nueva ruta autorizada</Text>
-          <Text style={styles.menor}>Menor: Pablo</Text>
+          <Text style={styles.menor}>Menor: {MENOR}</Text>
+
+          <SelectorLugar
+            titulo="Origen"
+            icono="location-outline"
+            lugares={lugares}
+            seleccionado={origenId}
+            onSeleccionar={setOrigenId}
+            onCreado={alCrearLugar(setOrigenId)}
+            onEliminar={quitarLugar}
+            bloqueado={destinoId}
+            menor={MENOR}
+          />
+          <SelectorLugar
+            titulo="Destino"
+            icono="flag-outline"
+            lugares={lugares}
+            seleccionado={destinoId}
+            onSeleccionar={setDestinoId}
+            onCreado={alCrearLugar(setDestinoId)}
+            onEliminar={quitarLugar}
+            bloqueado={origenId}
+            menor={MENOR}
+          />
 
           <CampoGlass
             style={styles.campo}
             icono="create-outline"
             etiqueta="Nombre de la ruta"
             value={nombre}
-            onChangeText={setNombre}
-            placeholder="Salida al dentista"
+            onChangeText={(t) => {
+              setNombre(t);
+              setNombreEditado(t.trim() !== '');
+            }}
+            placeholder="Casa a Consultorio dental"
           />
-          <CampoGlass
-            style={styles.campo}
-            icono="location-outline"
-            etiqueta="Origen"
-            value={origen}
-            onChangeText={setOrigen}
-            placeholder="Casa"
-          />
-          <CampoGlass
-            style={styles.campo}
-            icono="flag-outline"
-            etiqueta="Destino"
-            value={destino}
-            onChangeText={setDestino}
-            placeholder="Consultorio dental"
-          />
+
           <CampoGlass
             style={styles.campo}
             icono="calendar-outline"
             etiqueta="Fecha (AAAA-MM-DD)"
             value={fecha}
             onChangeText={setFecha}
-            placeholder="2026-10-20"
+            placeholder="2026-11-20"
+            maxLength={10}
           />
+          <View style={styles.atajos}>
+            {[
+              { etiqueta: 'Hoy', dias: 0 },
+              { etiqueta: 'Mañana', dias: 1 },
+            ].map((a) => (
+              <Pressable
+                key={a.etiqueta}
+                onPress={() => setFecha(fechaISO(a.dias))}
+                style={[styles.atajo, fecha === fechaISO(a.dias) && styles.atajoActivo]}
+              >
+                <Text style={[styles.atajoTexto, fecha === fechaISO(a.dias) && styles.atajoTextoActivo]}>
+                  {a.etiqueta}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
 
           <View style={styles.fila}>
             <CampoGlass
               style={styles.mitad}
               icono="time-outline"
-              etiqueta="Inicio (HH:MM)"
+              etiqueta="Inicio (24 h)"
               value={horaInicio}
-              onChangeText={setHoraInicio}
+              onChangeText={(t) => setHoraInicio(formatearHora(t))}
               placeholder="14:00"
+              keyboardType="number-pad"
+              maxLength={5}
             />
             <CampoGlass
               style={styles.mitad}
               icono="time-outline"
-              etiqueta="Fin (HH:MM)"
+              etiqueta="Fin (24 h)"
               value={horaFin}
-              onChangeText={setHoraFin}
+              onChangeText={(t) => setHoraFin(formatearHora(t))}
               placeholder="18:00"
+              keyboardType="number-pad"
+              maxLength={5}
             />
           </View>
 
@@ -195,7 +295,12 @@ export default function RutasTemporalesScreen() {
             </View>
           ) : null}
 
-          <BotonGlass titulo="Autorizar ruta" onPress={guardar} cargando={guardando} />
+          <BotonGlass
+            titulo="Autorizar ruta"
+            onPress={guardar}
+            cargando={guardando}
+            style={{ marginTop: 16 }}
+          />
         </GlassCard>
 
         <Text style={[styles.seccion, styles.seccionLista]}>Rutas registradas</Text>
@@ -242,6 +347,20 @@ const styles = StyleSheet.create({
   seccionLista: { marginTop: 24, marginBottom: 10 },
   menor: { marginTop: 2, fontSize: 14, color: colors.textoSuave },
   campo: { marginTop: 14 },
+  atajos: { flexDirection: 'row', gap: 8, marginTop: 8 },
+  atajo: {
+    paddingHorizontal: 14,
+    height: 34,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: 'rgba(156,68,153,0.3)',
+    backgroundColor: 'rgba(255,255,255,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  atajoActivo: { backgroundColor: colors.boton, borderColor: colors.boton },
+  atajoTexto: { color: colors.moradoMedio, fontSize: 13, fontWeight: '700' },
+  atajoTextoActivo: { color: colors.blanco },
   fila: { flexDirection: 'row', gap: 12, marginTop: 14 },
   mitad: { flex: 1 },
   errorCaja: {
