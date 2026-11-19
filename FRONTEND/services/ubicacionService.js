@@ -1,6 +1,9 @@
 // Posición del menor mientras no llegue la pulsera.
 // Se calcula con las rutas habituales guardadas: sigue la ruta que corresponde a
-// este día y a esta hora, avanzando por las calles según el horario de la ruta.
+// este día y a esta hora. El día tiene tres fases por ruta:
+//   ida      -> de la hora de salida a la hora de llegada
+//   estancia -> se queda en el destino hasta su hora estimada de salida
+//   regreso  -> vuelve al origen por las mismas calles
 // Cuando exista el endpoint de la pulsera, solo hay que reemplazar `calcular`
 // por una consulta a la API (misma forma de datos).
 import { listarRutasHabituales } from './rutasService';
@@ -36,6 +39,11 @@ const aMinutos = (hhmm) => {
   return h * 60 + m;
 };
 
+const limitar = (x) => Math.min(1, Math.max(0, x));
+
+const hhmm = (min) =>
+  `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(Math.floor(min % 60)).padStart(2, '0')}`;
+
 const capitalizar = (t) => (t ? t.charAt(0).toUpperCase() + t.slice(1) : t);
 
 // "casa a box" -> { origen: "Casa", destino: "Box" }
@@ -47,17 +55,34 @@ export function nombresDeRuta(ruta) {
   return { origen: 'Casa', destino: capitalizar(String(ruta?.nombre ?? 'su destino').trim()) };
 }
 
-function rutaVigente(rutas, ahora) {
+// Dónde debería estar ahora según las rutas de hoy: { ruta, fase, t } o null.
+// `t` es qué tan avanzado va por el trazo (0 = origen, 1 = destino).
+function momentoDelDia(rutas, ahora) {
   const dia = DIAS[ahora.getDay()];
-  const minutos = ahora.getHours() * 60 + ahora.getMinutes();
-  return (
-    rutas.find(
-      (r) =>
-        r.dias?.includes(dia) &&
-        aMinutos(r.hora_inicio) - TOLERANCIA_MIN <= minutos &&
-        minutos <= aMinutos(r.hora_fin) + TOLERANCIA_MIN
-    ) ?? null
-  );
+  const minutos = ahora.getHours() * 60 + ahora.getMinutes() + ahora.getSeconds() / 60;
+  for (const r of rutas) {
+    if (!r.dias?.includes(dia)) continue;
+    const inicio = aMinutos(r.hora_inicio);
+    const fin = aMinutos(r.hora_fin);
+    const duracion = Math.max(1, fin - inicio);
+
+    if (inicio - TOLERANCIA_MIN <= minutos && minutos <= fin + TOLERANCIA_MIN) {
+      return { ruta: r, fase: 'ida', t: limitar((minutos - inicio) / duracion), llegadaMin: fin };
+    }
+    if (r.hora_salida_destino) {
+      const salida = aMinutos(r.hora_salida_destino);
+      if (minutos > fin && minutos <= salida) return { ruta: r, fase: 'estancia', t: 1 };
+      if (minutos > salida && minutos <= salida + duracion) {
+        return {
+          ruta: r,
+          fase: 'regreso',
+          t: limitar(1 - (minutos - salida) / duracion),
+          llegadaMin: salida + duracion,
+        };
+      }
+    }
+  }
+  return null;
 }
 
 const distanciaM = (a, b) => {
@@ -117,6 +142,8 @@ async function rutasActuales() {
 
 const trazos = new Map();
 function trazoDe(ruta) {
+  // Si la ruta ya trae su camino guardado, se usa ese (el mismo con el que alerta el backend)
+  if (Array.isArray(ruta.trazo) && ruta.trazo.length >= 2) return Promise.resolve(ruta.trazo);
   if (!trazos.has(ruta.id)) {
     const [o, d] = ruta.puntos;
     const promesa = estimarRuta(o, d, 'pie')
@@ -133,17 +160,29 @@ function trazoDe(ruta) {
 // Un GPS nunca marca exactamente el mismo punto: varía unos metros aunque esté quieto
 const ruido = () => (Math.random() - 0.5) * 0.00012; // ~7 m
 
-function armarEstado({ punto, situacion, bateria, llegadaEstimada, origen, destino }) {
+function armarEstado({
+  punto,
+  situacion,
+  bateria,
+  llegadaEstimada,
+  minutosRestantes = null,
+  salidaEstimada = null,
+  origen,
+  destino,
+}) {
   const quieto = situacion === 'en_casa' || situacion === 'en_escuela';
   return {
     nombre: 'Pablo',
     latitud: punto.latitud + (quieto ? ruido() : 0),
     longitud: punto.longitud + (quieto ? ruido() : 0),
+    // en_casa | en_camino | en_escuela | de_regreso | fuera_de_ruta
     situacion,
     estado: 'seguro', // seguro | atencion | alerta (lo decide el backend)
     riesgo: 'Bajo',
     bateria,
-    llegadaEstimada,
+    llegadaEstimada, // HH:MM a la que llega a su destino (o a casa, si va de regreso)
+    minutosRestantes, // minutos que le faltan para llegar, solo mientras va en camino
+    salidaEstimada, // hora estimada de salida del destino (HH:MM) o null
     origen,
     destino,
     actualizado: new Date().toLocaleTimeString('es-MX', {
@@ -159,8 +198,8 @@ async function calcular(desviado, pasos) {
   try {
     const ahora = new Date();
     const rutas = await rutasActuales();
-    const vigente = rutaVigente(rutas, ahora);
-    const ruta = vigente ?? rutas[0] ?? null;
+    const momento = momentoDelDia(rutas, ahora);
+    const ruta = momento?.ruta ?? rutas[0] ?? null;
 
     if (!ruta) {
       return armarEstado({
@@ -175,14 +214,14 @@ async function calcular(desviado, pasos) {
 
     const trazo = await trazoDe(ruta);
     const { origen, destino } = nombresDeRuta(ruta);
-    const inicio = aMinutos(ruta.hora_inicio);
-    const fin = aMinutos(ruta.hora_fin);
-    const minutos = ahora.getHours() * 60 + ahora.getMinutes() + ahora.getSeconds() / 60;
-    // Fuera del horario está en el origen; dentro avanza según la hora
-    const t = vigente ? Math.min(1, Math.max(0, (minutos - inicio) / Math.max(1, fin - inicio))) : 0;
+    // Fuera de todas las fases está en el origen
+    const t = momento ? momento.t : 0;
 
     let punto = puntoEnTrazo(trazo, t);
-    let situacion = t <= 0.02 ? 'en_casa' : t >= 0.98 ? 'en_escuela' : 'en_camino';
+    let situacion;
+    if (momento?.fase === 'estancia') situacion = 'en_escuela';
+    else if (momento?.fase === 'regreso') situacion = t <= 0.02 ? 'en_casa' : 'de_regreso';
+    else situacion = t <= 0.02 ? 'en_casa' : t >= 0.98 ? 'en_escuela' : 'en_camino';
 
     if (desviado) {
       // Se aleja de forma perpendicular hasta ~3 veces la holgura de la ruta,
@@ -199,15 +238,22 @@ async function calcular(desviado, pasos) {
       if (factor > 0.2) situacion = 'fuera_de_ruta';
     }
 
+    const minutosAhora = ahora.getHours() * 60 + ahora.getMinutes() + ahora.getSeconds() / 60;
+    const enTrayecto = momento?.llegadaMin != null && (situacion === 'en_camino' || situacion === 'de_regreso');
+
     return armarEstado({
       punto,
       situacion,
       bateria,
-      llegadaEstimada: vigente ? ruta.hora_fin : '—',
+      llegadaEstimada: enTrayecto ? hhmm(momento.llegadaMin) : momento?.fase === 'ida' ? ruta.hora_fin : '—',
+      minutosRestantes: enTrayecto ? Math.max(1, Math.ceil(momento.llegadaMin - minutosAhora)) : null,
+      salidaEstimada:
+        momento && momento.fase !== 'regreso' ? (ruta.hora_salida_destino ?? null) : null,
       origen,
       destino,
     });
-  } catch {
+  } catch (e) {
+    console.warn('[ubicacionService] No se pudo calcular la posición simulada:', e);
     return armarEstado({
       punto: POR_DEFECTO,
       situacion: 'en_casa',

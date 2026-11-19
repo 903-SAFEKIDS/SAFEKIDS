@@ -29,9 +29,11 @@ function textoSituacion(datos, evaluacion) {
     case 'en_casa':
       return `está en ${datos.origen}`;
     case 'en_camino':
-      return `va camino a ${datos.destino}`;
+      return `va de ${datos.origen} a ${datos.destino}`;
     case 'en_escuela':
       return `está en ${datos.destino}`;
+    case 'de_regreso':
+      return `va de ${datos.destino} a ${datos.origen}`;
     case 'fuera_de_ruta':
       return 'está fuera de su ruta habitual';
     default:
@@ -100,6 +102,29 @@ export default function InicioScreen({ navigation }) {
   const riesgo = evaluacion?.riesgo ?? datos.riesgo;
   const situacionTexto = textoSituacion(datos, evaluacion);
 
+  // Mientras está en su destino se muestra la hora estimada de salida (la aprendida, si la hay)
+  const salidaEstimada = evaluacion?.salida_estimada ?? datos.salidaEstimada;
+  const enDestino = datos.situacion === 'en_escuela' && !!salidaEstimada;
+
+  // Mientras va en camino (de ida o de regreso): a qué hora llega y cuántos minutos le faltan.
+  // Lo calcula el backend; si no responde, se usa el cálculo de la simulación.
+  const enCamino = datos.situacion === 'en_camino' || datos.situacion === 'de_regreso';
+  const llegada = evaluacion?.llegada_estimada ?? (enCamino ? datos.llegadaEstimada : null);
+  const minutos = evaluacion?.minutos_restantes ?? (enCamino ? datos.minutosRestantes : null);
+  const hacia = evaluacion?.hacia ?? (datos.situacion === 'de_regreso' ? datos.origen : datos.destino);
+  const enTrayecto = !!llegada && llegada !== '—' && minutos != null;
+
+  const etiquetaTiempo = enTrayecto
+    ? `Llega a ${hacia}`
+    : enDestino
+      ? 'Salida estimada'
+      : 'Llegada estimada';
+  const valorTiempo = enTrayecto
+    ? `${llegada} (${minutos} min)`
+    : enDestino
+      ? salidaEstimada
+      : datos.llegadaEstimada;
+
   return (
     <View style={styles.pantalla}>
       <StatusBar barStyle="dark-content" />
@@ -152,7 +177,7 @@ export default function InicioScreen({ navigation }) {
         ) : null}
 
         <View style={styles.datos}>
-          <Dato etiqueta="Llegada estimada" valor={datos.llegadaEstimada} />
+          <Dato etiqueta={etiquetaTiempo} valor={valorTiempo} />
           <Dato etiqueta="Batería" valor={`${datos.bateria}%`} />
           <Dato etiqueta="Riesgo" valor={riesgo} color={estado.color} />
         </View>

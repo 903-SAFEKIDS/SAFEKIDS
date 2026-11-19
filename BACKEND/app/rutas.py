@@ -16,6 +16,7 @@ rutas_habituales = usuarios.database["rutas_habituales"]
 
 DIAS_VALIDOS = ["lun", "mar", "mie", "jue", "vie", "sab", "dom"]
 HORA_REGEX = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+MAX_PUNTOS_TRAZO = 300  # máximo de puntos que se guardan del camino de una ruta
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -36,9 +37,13 @@ class RutaHabitualIn(BaseModel):
     menor_id: str
     nombre: str
     dias: list[str]
-    hora_inicio: str
-    hora_fin: str
+    hora_inicio: str  # hora de salida del origen
+    hora_fin: str  # hora de llegada al destino
+    hora_salida_destino: str | None = None  # hasta qué hora permanece en el destino
     puntos: list[PuntoIn]
+    # Camino real por las calles (lo calcula la app al guardar). Con él, las alertas comparan la
+    # posición contra el camino y no contra la línea recta entre origen y destino.
+    trazo: list[PuntoIn] | None = None
 
 
 def serializar(r: dict) -> dict:
@@ -49,11 +54,14 @@ def serializar(r: dict) -> dict:
         "dias": r["dias"],
         "hora_inicio": r["hora_inicio"],
         "hora_fin": r["hora_fin"],
+        # Rutas guardadas antes de este campo no lo tienen
+        "hora_salida_destino": r.get("hora_salida_destino"),
         # GeoJSON guarda [longitud, latitud]; aquí se regresa como la app lo usa
         "puntos": [
             {"latitud": p["coordinates"][1], "longitud": p["coordinates"][0]}
             for p in r["puntos"]
         ],
+        "trazo": [{"latitud": la, "longitud": lo} for la, lo in r.get("trazo") or []] or None,
     }
 
 
@@ -78,11 +86,33 @@ def crear_ruta_habitual(datos: RutaHabitualIn, usuario_id: str = Depends(usuario
     if datos.hora_fin <= datos.hora_inicio:
         raise HTTPException(400, "La hora de fin debe ser mayor que la de inicio.")
 
+    hora_salida_destino = (datos.hora_salida_destino or "").strip() or None
+    if hora_salida_destino:
+        if not HORA_REGEX.match(hora_salida_destino):
+            raise HTTPException(
+                400, "Escribe la hora de salida del destino con formato HH:MM, por ejemplo 13:00."
+            )
+        if hora_salida_destino <= datos.hora_fin:
+            raise HTTPException(
+                400, "La hora de salida del destino debe ser mayor que la hora de llegada."
+            )
+
     if len(datos.puntos) < 2:
         raise HTTPException(400, "La ruta necesita al menos un origen y un destino.")
     for p in datos.puntos:
         if not (-90 <= p.latitud <= 90) or not (-180 <= p.longitud <= 180):
             raise HTTPException(400, "Revisa la latitud (-90 a 90) y la longitud (-180 a 180).")
+
+    trazo = None
+    if datos.trazo and len(datos.trazo) >= 2:
+        for p in datos.trazo:
+            if not (-90 <= p.latitud <= 90) or not (-180 <= p.longitud <= 180):
+                raise HTTPException(400, "El camino de la ruta tiene coordenadas fuera de rango.")
+        puntos_trazo = datos.trazo
+        if len(puntos_trazo) > MAX_PUNTOS_TRAZO:  # se reduce, quedándose con el primero y el último
+            paso = (len(puntos_trazo) - 1) / (MAX_PUNTOS_TRAZO - 1)
+            puntos_trazo = [puntos_trazo[round(i * paso)] for i in range(MAX_PUNTOS_TRAZO)]
+        trazo = [[p.latitud, p.longitud] for p in puntos_trazo]  # compacto: [latitud, longitud]
 
     resultado = rutas_habituales.insert_one(
         {
@@ -92,6 +122,8 @@ def crear_ruta_habitual(datos: RutaHabitualIn, usuario_id: str = Depends(usuario
             "dias": dias,
             "hora_inicio": datos.hora_inicio,
             "hora_fin": datos.hora_fin,
+            "hora_salida_destino": hora_salida_destino,
+            "trazo": trazo,
             # GeoJSON: primero longitud y luego latitud
             "puntos": [
                 {"type": "Point", "coordinates": [p.longitud, p.latitud]} for p in datos.puntos
@@ -119,7 +151,8 @@ def eliminar_ruta_habitual(ruta_id: str, usuario_id: str = Depends(usuario_actua
         raise HTTPException(404, "Ruta no encontrada.")
     return {"mensaje": "Ruta eliminada."}
 
-    # ---------- Historial de recorridos (HU05) ----------
+
+# ---------- Historial de recorridos (HU05) ----------
 
 recorridos = usuarios.database["recorridos"]
 
