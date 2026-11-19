@@ -35,6 +35,16 @@ const normalizar = (t) =>
     .toLowerCase()
     .trim();
 
+// Reduce el camino por las calles a unos 150 puntos para no mandar una petición enorme
+const reducirTrazo = (trazo, max = 150) => {
+  if (!Array.isArray(trazo) || trazo.length < 2) return null;
+  const puntos =
+    trazo.length <= max
+      ? trazo
+      : Array.from({ length: max }, (_, i) => trazo[Math.round((i * (trazo.length - 1)) / (max - 1))]);
+  return puntos.map((p) => ({ latitud: Number(p.latitud), longitud: Number(p.longitud) }));
+};
+
 // Un lugar guardado -> el mismo formato de punto que usa el resto de la pantalla
 const aPunto = (lugar) =>
   lugar
@@ -52,6 +62,7 @@ export default function ConfigRutaScreen({ navigation }) {
   const [nombreEditado, setNombreEditado] = useState(false);
   const [dias, setDias] = useState(['lun', 'mar', 'mie', 'jue', 'vie']);
   const [horaInicio, setHoraInicio] = useState('');
+  const [horaSalidaDestino, setHoraSalidaDestino] = useState('');
   const [modo, setModo] = useState('pie');
   const [estimado, setEstimado] = useState(null);
   const [calculando, setCalculando] = useState(false);
@@ -172,6 +183,17 @@ export default function ConfigRutaScreen({ navigation }) {
       return;
     }
 
+    if (horaSalidaDestino) {
+      if (!horaValida(horaSalidaDestino)) {
+        setError('La hora de salida del destino no es válida (formato de 24 horas).');
+        return;
+      }
+      if (horaSalidaDestino <= horaFin) {
+        setError(`Debe ser mayor que la llegada estimada (${horaFin}).`);
+        return;
+      }
+    }
+
     const resultado = construirRuta(
       { nombre, dias, horaInicio, horaFin, origen, destino },
       MENOR_ID
@@ -183,10 +205,16 @@ export default function ConfigRutaScreen({ navigation }) {
     setError('');
     setGuardando(true);
     try {
-      await guardarRutaHabitual(resultado.datos);
+      await guardarRutaHabitual({
+        ...resultado.datos,
+        hora_salida_destino: horaSalidaDestino || null,
+        // El camino real por las calles: las alertas comparan contra él, no contra una línea recta
+        trazo: reducirTrazo(estimado.trazo),
+      });
       setExito('Ruta guardada correctamente.');
       setNombreEditado(false);
       setHoraInicio('');
+      setHoraSalidaDestino('');
       await cargar();
     } catch (e) {
       setError(e.message);
@@ -313,6 +341,17 @@ export default function ConfigRutaScreen({ navigation }) {
           </View>
         ) : null}
 
+        <CampoGlass
+          style={{ marginTop: 16 }}
+          icono="school-outline"
+          etiqueta="Permanece en el destino hasta (24 h, opcional)"
+          value={horaSalidaDestino}
+          onChangeText={(t) => setHoraSalidaDestino(formatearHora(t))}
+          placeholder="13:00"
+          keyboardType="number-pad"
+          maxLength={5}
+        />
+
         {error ? (
           <View style={[styles.mensaje, styles.mensajeError]}>
             <Ionicons name="alert-circle" size={18} color={colors.error} />
@@ -352,6 +391,11 @@ export default function ConfigRutaScreen({ navigation }) {
               <Text style={styles.itemTexto}>
                 {r.hora_inicio} a {r.hora_fin}
               </Text>
+              {r.hora_salida_destino ? (
+                <Text style={styles.itemTexto}>
+                  Permanece en el destino hasta {r.hora_salida_destino}
+                </Text>
+              ) : null}
               <Pressable onPress={() => eliminar(r.id)} style={styles.eliminar}>
                 <Text style={styles.eliminarTexto}>Eliminar ruta</Text>
               </Pressable>
