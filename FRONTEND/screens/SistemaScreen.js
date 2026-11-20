@@ -9,8 +9,14 @@ export default function SistemaScreen({ navigation }) {
       mensaje="Aquí estará el perfil, el dispositivo vinculado y la configuración."
     >
       <BotonGlass
-        titulo="Configurar ruta y horario"
+        titulo="Vincular pulsera"
         style={{ alignSelf: 'stretch', marginTop: 20 }}
+        onPress={() => navigation.navigate('Dispositivo')}
+      />
+      <BotonGlass
+        titulo="Configurar ruta y horario"
+        variante="secundario"
+        style={{ alignSelf: 'stretch', marginTop: 12 }}
         onPress={() => navigation.navigate('ConfigRuta')}
       />
       <BotonGlass

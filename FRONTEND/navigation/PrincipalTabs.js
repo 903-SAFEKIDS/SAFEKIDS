@@ -7,6 +7,7 @@ import ConfigRutaScreen from '../screens/ConfigRutaScreen';
 import RutasTemporalesScreen from '../screens/RutasTemporalesScreen';
 import HistorialScreen from '../screens/HistorialScreen';
 import PrediccionScreen from '../screens/PrediccionScreen';
+import DispositivoScreen from '../screens/DispositivoScreen';
 import { cerrarSesion } from '../services/sesion';
 import { reanudarPush, desactivarPush } from '../services/pushService';
 
@@ -18,18 +19,17 @@ const PANTALLAS = {
   Sistema: SistemaScreen,
   Historial: HistorialScreen,
   Predicción: PrediccionScreen,
+  Dispositivo: DispositivoScreen,
 };
 
 export default function PrincipalTabs({ navigation }) {
   const [actual, setActual] = useState('Inicio');
-  const Pantalla = PANTALLAS[actual] || InicioScreen; // Fallback por seguridad si la clave no existe
+  const Pantalla = PANTALLAS[actual] || InicioScreen;
 
-  // Si ya diste permiso de notificaciones, este navegador se registra al entrar
   useEffect(() => {
     reanudarPush();
   }, []);
 
-  // Las pantallas siguen usando navigation.navigate('Rutas') y getParent()
   const navegacion = useMemo(
     () => ({ navigate: setActual, getParent: () => navigation }),
     [navigation]
@@ -37,10 +37,10 @@ export default function PrincipalTabs({ navigation }) {
 
   return (
     <MarcoApp
-      actual={actual}
+      actual={actual === 'Dispositivo' ? 'Sistema' : actual}
       onNavegar={setActual}
       onSalir={async () => {
-        await desactivarPush(); // este navegador deja de recibir las alertas de la cuenta
+        await desactivarPush();
         cerrarSesion();
         navigation.replace('Login');
       }}
