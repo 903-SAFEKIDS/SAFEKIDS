@@ -61,7 +61,7 @@ export default function RegistroScreen({ navigation }) {
         telefono: telefono.trim(),
         contrasena,
       });
-      navigation.navigate('Login');
+      navigation.navigate('VerificarCorreo', { correo: correo.trim().toLowerCase() });
     } catch (e) {
       setError(e.message);
     } finally {
