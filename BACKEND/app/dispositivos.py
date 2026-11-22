@@ -85,3 +85,41 @@ def latido(d=Depends(dispositivo_auth)):
     """La ESP32 manda su ID único + clave cada pocos segundos."""
     col.update_one({"_id": d["_id"]}, {"$set": {"ultima_conexion": ahora()}})
     return {"vinculado": d.get("usuario_id") is not None}
+
+class UbicacionIn(BaseModel):
+    latitud: float
+    longitud: float
+
+
+@router.post("/ubicacion")
+def guardar_ubicacion(body: UbicacionIn, d=Depends(dispositivo_auth)):
+    """La ESP32 manda su ubicación (autenticada con ID + clave)."""
+    if not (-90 <= body.latitud <= 90 and -180 <= body.longitud <= 180):
+        raise HTTPException(400, "Coordenadas inválidas")
+    if d.get("usuario_id") is None:
+        raise HTTPException(409, "Pulsera sin vincular")
+    ts = ahora()
+    col.update_one(
+        {"_id": d["_id"]},
+        {"$set": {
+            "ultima_ubicacion": {"latitud": body.latitud, "longitud": body.longitud, "fecha": ts},
+            "ultima_conexion": ts,
+        }},
+    )
+    return {"ok": True}
+
+
+@router.get("/ubicacion")
+def ultima_ubicacion(usuario=Depends(usuario_actual)):
+    d = col.find_one({"usuario_id": str(usuario)})
+    if not d:
+        raise HTTPException(404, "No tienes pulsera vinculada")
+    u = d.get("ultima_ubicacion")
+    if not u:
+        return {"disponible": False}
+    return {
+        "disponible": True,
+        "latitud": u["latitud"],
+        "longitud": u["longitud"],
+        "fecha": u["fecha"].isoformat() + "Z",
+    }
