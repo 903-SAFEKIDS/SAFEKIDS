@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import {
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -46,6 +45,14 @@ export default function LoginScreen({ navigation }) {
       guardarSesion(datos);
       navigation.replace('Principal');
     } catch (e) {
+      if (e.status === 403) {
+        // Correo sin verificar: lo manda a verificar y se le reenvía un código
+        navigation.navigate('VerificarCorreo', {
+          correo: correo.trim().toLowerCase(),
+          reenviar: true,
+        });
+        return;
+      }
       setError(e.message);
     } finally {
       setCargando(false);
@@ -113,7 +120,7 @@ export default function LoginScreen({ navigation }) {
 
               <Pressable
                 style={styles.olvidoCaja}
-                onPress={() => Alert.alert('Recuperar contraseña', 'Disponible próximamente.')}
+                onPress={() => navigation.navigate('Recuperar')}
               >
                 <Text style={styles.olvido}>¿Olvidaste tu contraseña?</Text>
               </Pressable>

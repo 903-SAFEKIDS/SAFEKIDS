@@ -62,6 +62,7 @@ ESPECIAL_REGEX = re.compile(r"[!@#$%^&*()_+\-=\[\]{};:'\",.<>/?\\|~`]")
 MINUTOS_CODIGO = 10
 MAX_INTENTOS_CODIGO = 5
 LIMPIAR_CODIGO = {"codigo_hash": "", "codigo_expira": "", "intentos_codigo": ""}
+LIMPIAR_VERIF = {"verif_hash": "", "verif_expira": "", "verif_intentos": ""}
 
 
 # ---------- Utilidades ----------
@@ -115,6 +116,27 @@ def enviar_correo(destino: str, asunto: str, cuerpo: str) -> None:
             server.send_message(msg)
     except Exception as e:
         print(f"[ERROR] No se pudo enviar el correo a {destino}: {e}")
+
+
+def enviar_codigo_verificacion(usuario_id, nombre: str, correo: str, tareas: BackgroundTasks) -> None:
+    codigo = f"{secrets.randbelow(10**6):06d}"
+    usuarios.update_one(
+        {"_id": usuario_id},
+        {
+            "$set": {
+                "verif_hash": hashear_contrasena(codigo),
+                "verif_expira": datetime.now(timezone.utc) + timedelta(minutes=MINUTOS_CODIGO),
+                "verif_intentos": 0,
+            }
+        },
+    )
+    cuerpo = (
+        f"Hola {nombre},\n\n"
+        f"Tu código para verificar tu correo en SafeKids es: {codigo}\n\n"
+        f"Vence en {MINUTOS_CODIGO} minutos. "
+        "Si no fuiste tú, ignora este mensaje."
+    )
+    tareas.add_task(enviar_correo, correo, "Verifica tu correo en SafeKids", cuerpo)
 
 
 def verificar_contrasena(contrasena: str, guardado: str) -> bool:
@@ -173,7 +195,7 @@ class RegistroIn(BaseModel):
 
 
 @app.post("/auth/registro", status_code=201)
-def registro(datos: RegistroIn):
+def registro(datos: RegistroIn, tareas: BackgroundTasks):
     nombre = datos.nombre.strip()
     correo = datos.correo.strip().lower()
     telefono = re.sub(r"\D", "", datos.telefono)
@@ -189,20 +211,34 @@ def registro(datos: RegistroIn):
     if error_contrasena:
         raise HTTPException(400, error_contrasena)
 
+    doc = {
+        "nombre": nombre,
+        "correo": correo,
+        "telefono": telefono,
+        "contrasena_hash": hashear_contrasena(datos.contrasena),
+        "verificado": False,
+        "creado_en": datetime.now(timezone.utc),
+    }
     try:
-        resultado = usuarios.insert_one(
-            {
-                "nombre": nombre,
-                "correo": correo,
-                "telefono": telefono,
-                "contrasena_hash": hashear_contrasena(datos.contrasena),
-                "creado_en": datetime.now(timezone.utc),
-            }
-        )
+        usuario_id = usuarios.insert_one(doc).inserted_id
     except DuplicateKeyError:
-        raise HTTPException(409, "Ese correo ya está registrado.")
+        existente = usuarios.find_one({"correo": correo})
+        # Si quedó a medias (sin verificar), se deja registrarse de nuevo
+        if existente and existente.get("verificado", True) is False:
+            usuarios.update_one(
+                {"_id": existente["_id"]},
+                {"$set": {
+                    "nombre": nombre,
+                    "telefono": telefono,
+                    "contrasena_hash": doc["contrasena_hash"],
+                }},
+            )
+            usuario_id = existente["_id"]
+        else:
+            raise HTTPException(409, "Ese correo ya está registrado.")
 
-    return {"id": str(resultado.inserted_id), "nombre": nombre, "correo": correo}
+    enviar_codigo_verificacion(usuario_id, nombre, correo, tareas)
+    return {"id": str(usuario_id), "nombre": nombre, "correo": correo, "requiere_verificacion": True}
 
 
 # ---------- Login ----------
@@ -215,6 +251,10 @@ def login(datos: LoginIn):
     # Mismo mensaje si el correo no existe o la contraseña no coincide
     if not usuario or not verificar_contrasena(datos.contrasena, usuario.get("contrasena_hash", "")):
         raise HTTPException(401, "Correo o contraseña incorrectos.")
+
+    # Los usuarios viejos no tienen el campo, por eso se toman como verificados
+    if usuario.get("verificado", True) is False:
+        raise HTTPException(403, "Tu correo aún no está verificado.")
 
     usuario_id = str(usuario["_id"])
     return {
@@ -296,11 +336,59 @@ def confirmar_recuperacion(datos: ConfirmarIn):
     usuarios.update_one(
         {"_id": usuario["_id"]},
         {
-            "$set": {"contrasena_hash": hashear_contrasena(datos.nueva_contrasena)},
+            "$set": {
+                "contrasena_hash": hashear_contrasena(datos.nueva_contrasena),
+                "verificado": True,
+            },
             "$unset": LIMPIAR_CODIGO,
         },
     )
     return {"mensaje": "Contraseña actualizada."}
+
+
+# ---------- Verificar correo ----------
+
+class VerificarIn(BaseModel):
+    correo: str
+    codigo: str
+
+
+@app.post("/auth/verificar")
+def verificar_correo(datos: VerificarIn):
+    invalido = HTTPException(400, "Código incorrecto o vencido.")
+    usuario = usuarios.find_one({"correo": datos.correo.strip().lower()})
+    if not usuario or "verif_hash" not in usuario:
+        raise invalido
+
+    ahora = datetime.now(timezone.utc).replace(tzinfo=None)
+    if usuario["verif_expira"] < ahora:
+        usuarios.update_one({"_id": usuario["_id"]}, {"$unset": LIMPIAR_VERIF})
+        raise invalido
+
+    if not verificar_hash(datos.codigo.strip(), usuario["verif_hash"]):
+        intentos = usuario.get("verif_intentos", 0) + 1
+        if intentos >= MAX_INTENTOS_CODIGO:
+            usuarios.update_one({"_id": usuario["_id"]}, {"$unset": LIMPIAR_VERIF})
+        else:
+            usuarios.update_one(
+                {"_id": usuario["_id"]}, {"$set": {"verif_intentos": intentos}}
+            )
+        raise invalido
+
+    usuarios.update_one(
+        {"_id": usuario["_id"]},
+        {"$set": {"verificado": True}, "$unset": LIMPIAR_VERIF},
+    )
+    return {"mensaje": "Correo verificado."}
+
+
+@app.post("/auth/verificar/reenviar")
+def reenviar_verificacion(datos: SolicitarIn, tareas: BackgroundTasks):
+    correo = datos.correo.strip().lower()
+    usuario = usuarios.find_one({"correo": correo})
+    if usuario and usuario.get("verificado", True) is False:
+        enviar_codigo_verificacion(usuario["_id"], usuario["nombre"], correo, tareas)
+    return {"mensaje": "Si el correo está pendiente de verificar, te enviamos un nuevo código."}
 
 
 # ---------- Rutas temporales (HU08) ----------
@@ -401,5 +489,3 @@ def cancelar_ruta_temporal(ruta_id: str, usuario_id: str = Depends(usuario_actua
     if r.matched_count == 0:
         raise HTTPException(404, "Ruta no encontrada.")
     return {"mensaje": "Ruta cancelada."}
-
-
