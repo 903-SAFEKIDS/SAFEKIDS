@@ -1,5 +1,6 @@
 import { API_URL } from './authService';
 import { obtenerToken } from './sesion';
+export const obtenerUbicacion = () => pedir('/ubicacion');
 
 async function pedir(ruta, opciones = {}) {
   let respuesta;
