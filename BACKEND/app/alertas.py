@@ -28,9 +28,13 @@ DIAS = ["lun", "mar", "mie", "jue", "vie", "sab", "dom"]  # weekday(): lunes = 0
 
 MARGEN_BASE_M = 250  # holgura mínima alrededor de la ruta
 MARGEN_POR_LARGO = 0.15  # más holgura en rutas largas (las calles no son rectas)
-TOLERANCIA_MIN = 20  # minutos antes y después del horario de la ruta
-REPETIR_ALERTA_MIN = 10  # no repetir la misma alerta en este lapso
+TOLERANCIA_MIN = 1440  # minutos antes y después del horario de la ruta
+REPETIR_ALERTA_MIN = 1  # no repetir la misma alerta en este lapso
 RADIO_TIERRA_M = 6_371_000
+
+# Escalamiento de riesgo al alejarse de la ruta (múltiplos de `margen`)
+MULT_RIESGO_BAJO = .5   # margen < d <= margen * 1.5  -> Bajo
+MULT_RIESGO_MEDIO = 1.5  # margen * 1.5 < d <= margen * 2.5 -> Medio; mayor -> Alto
 
 # Alertas de llegada
 GRACIA_LLEGADA_MIN = 15  # minutos de margen después de la hora en que suele llegar
@@ -238,6 +242,32 @@ def _resultado(
     }
 
 
+def _clasificar_desvio(d: int, margen: float, ruta_obj: dict, es_autorizada: bool = False) -> dict:
+    """Escala el riesgo conforme aumenta la distancia `d` fuera de `margen`:
+    Bajo -> Medio -> Alto."""
+    sufijo = "de su ruta autorizada" if es_autorizada else "de su ruta habitual"
+    if d <= margen * MULT_RIESGO_BAJO:
+        motivo = (
+            "Está empezando a alejarse de su ruta autorizada."
+            if es_autorizada
+            else "Está empezando a alejarse de su ruta habitual."
+        )
+        return _resultado("atencion", "Bajo", motivo, ruta_obj, distancia=d)
+    if d <= margen * MULT_RIESGO_MEDIO:
+        motivo = (
+            "Se alejó de su ruta autorizada."
+            if es_autorizada
+            else "Se alejó de su ruta habitual."
+        )
+        return _resultado("atencion", "Medio", motivo, ruta_obj, distancia=d)
+    motivo = (
+        f"Se desvió {sufijo}."
+        if es_autorizada
+        else f"Se desvió {sufijo} sin autorización."
+    )
+    return _resultado("alerta", "Alto", motivo, ruta_obj, distancia=d)
+
+
 def _minutos_que_faltan(
     tramo: tuple,
     latitud: float,
@@ -291,16 +321,8 @@ def _en_ruta_habitual(ruta: dict, latitud: float, longitud: float, local: dateti
 
 
 def _desvio_autorizada(autorizada: dict, d: int, margen: float) -> dict:
-    """Se alejó de la ruta temporal autorizada: atención si es poco, alerta si es mucho.
-    La ruta va en el campo `ruta` (no en `ruta_autorizada`), porque ese campo significa
-    'va por una ruta autorizada' y la app lo muestra como seguro."""
-    if d <= margen * 2:
-        return _resultado(
-            "atencion", "Medio", "Se alejó de su ruta autorizada.", autorizada, distancia=d
-        )
-    return _resultado(
-        "alerta", "Alto", "Se desvió de su ruta autorizada.", autorizada, distancia=d
-    )
+    """Escala el desvío de la ruta temporal autorizada (Bajo -> Medio -> Alto)."""
+    return _clasificar_desvio(d, margen, autorizada, es_autorizada=True)
 
 
 def evaluar_ubicacion(
@@ -330,7 +352,6 @@ def evaluar_ubicacion(
             return _resultado(
                 "seguro", "Bajo", "Está en su ruta autorizada.", autorizada=autorizada, distancia=d
             )
-        # Se alejó de la ruta autorizada: se vigila contra ella (salvo que esté en su ruta habitual)
         desvio_autorizada = _desvio_autorizada(autorizada, d, margen)
 
     # 2. Ruta habitual de este día y horario
@@ -363,11 +384,7 @@ def evaluar_ubicacion(
         return _en_ruta_habitual(ruta, latitud, longitud, local, d)
     if desvio_autorizada:
         return desvio_autorizada
-    if d <= margen * 2:
-        return _resultado("atencion", "Medio", "Se alejó de su ruta habitual.", ruta, distancia=d)
-    return _resultado(
-        "alerta", "Alto", "Se desvió de su ruta habitual sin autorización.", ruta, distancia=d
-    )
+    return _clasificar_desvio(d, margen, ruta, es_autorizada=False)
 
 
 # ---------- Crear alertas y mandar el push ----------
@@ -403,11 +420,8 @@ def crear_alerta(
     repetir_min: int = REPETIR_ALERTA_MIN,
     clave: str | None = None,
 ) -> str:
-    """Guarda la alerta y manda el push. Si ya hay una igual, no la repite.
-
-    Con `clave`, una alerta con esa misma clave se crea una sola vez; sin ella, se compara
-    con las del mismo tipo y nivel de los últimos `repetir_min` minutos.
-    """
+    """Guarda la alerta y manda el push. Si ya hay una igual no resuelta dentro de `repetir_min`,
+    no la repite."""
     ahora = datetime.now(timezone.utc)
     if clave:
         previa = alertas.find_one({"usuario_id": usuario_id, "clave": clave})
@@ -418,6 +432,7 @@ def crear_alerta(
                 "menor": menor,
                 "tipo": tipo,
                 "nivel": nivel,
+                "resuelta": {"$ne": True},
                 "creada_en": {"$gte": ahora - timedelta(minutes=repetir_min)},
             }
         )
@@ -432,6 +447,7 @@ def crear_alerta(
         "titulo": titulo,
         "mensaje": mensaje,
         "leida": False,
+        "resuelta": False,
         "creada_en": ahora,
         **({"clave": clave} if clave else {}),
         **(extra or {}),
@@ -529,13 +545,7 @@ def evaluar_llegadas(
     tareas: BackgroundTasks,
     ahora: datetime | None = None,
 ) -> list[str]:
-    """Avisa si el menor no llegó a su destino a la hora en que suele hacerlo, o si llegó tarde.
-
-    La hora esperada se aprende del historial (mediana de sus llegadas en días del mismo tipo);
-    con pocos datos se usa la hora de llegada de la ruta habitual. Solo se evalúa si el
-    dispositivo estuvo mandando ubicaciones durante el horario de la ruta: sin registros no se
-    puede decir que no llegó (eso sería pérdida de señal).
-    """
+    """Avisa si el menor no llegó a su destino a la hora en que suele hacerlo, o si llegó tarde."""
     ahora = _utc(ahora) if ahora else datetime.now(timezone.utc)
     local = ahora.astimezone(ZONA)
     if _temporal_vigente(temporales, menor, ahora):
@@ -779,12 +789,7 @@ def evaluar_salidas(
     ahora: datetime | None = None,
 ) -> list[str]:
     """Avisa cuando el menor sale de su destino (escuela, box...) y dice si salió antes, a la hora
-    o después de lo esperado. Solo aplica a rutas con hora estimada de salida.
-
-    La hora esperada es la que aprendió del historial (mediana de sus salidas) o, con pocos
-    datos, la que escribió el padre. Cada salida real queda en el historial de recorridos, así
-    que la estimación se ajusta sola con los días.
-    """
+    o después de lo esperado. Solo aplica a rutas con hora estimada de salida."""
     ahora = _utc(ahora) if ahora else datetime.now(timezone.utc)
     local = ahora.astimezone(ZONA)
     if _temporal_vigente(temporales, menor, ahora):
@@ -922,11 +927,23 @@ def evaluar(
     )
 
     alerta_id = None
-    if resultado["estado"] != "seguro":
+    if resultado["estado"] == "seguro" and not resultado.get("ruta_autorizada"):
+        alertas.update_many(
+            {
+                "usuario_id": usuario_id,
+                "menor": datos.menor,
+                "tipo": "desviacion",
+                "resuelta": {"$ne": True},
+            },
+            {"$set": {"resuelta": True}},
+        )
+    elif resultado["estado"] != "seguro":
         if resultado["riesgo"] == "Alto":
             titulo = f"Alerta: {datos.menor} se desvió de su ruta"
-        else:
+        elif resultado["riesgo"] == "Medio":
             titulo = f"Atención: {datos.menor} se alejó de su ruta"
+        else:
+            titulo = f"Aviso: {datos.menor} comienza a alejarse de su ruta"
         mensaje = f"{resultado['motivo']} Está a {resultado['distancia_m']} m de {resultado['ruta']}."
         alerta_id = crear_alerta(
             usuario_id,

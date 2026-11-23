@@ -63,7 +63,7 @@ export default function InicioScreen({ navigation }) {
   const [datos, setDatos] = useState(null);
   const [evaluacion, setEvaluacion] = useState(null);
   const [desvio, setDesvio] = useState(false);
-  const [usarReal, setUsarReal] = useState(true);
+  const [usarReal, setUsarReal] = useState(false);
 
   // Ubicación en tiempo real: la pulsera si está mandando datos; si no, la simulación
   useEffect(() => suscribirUbicacion(setDatos, 3000, desvio, usarReal), [desvio, usarReal]);
