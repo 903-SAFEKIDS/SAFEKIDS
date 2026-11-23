@@ -30,13 +30,18 @@ const normalizar = (t) =>
     .toLowerCase()
     .trim();
 
+// Una fecha como AAAA-MM-DD
+function formatoFecha(d) {
+  const mes = String(d.getMonth() + 1).padStart(2, '0');
+  const dia = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${mes}-${dia}`;
+}
+
 // Fecha de hoy (más `dias`) como AAAA-MM-DD
 function fechaISO(dias = 0) {
   const d = new Date();
   d.setDate(d.getDate() + dias);
-  const mes = String(d.getMonth() + 1).padStart(2, '0');
-  const dia = String(d.getDate()).padStart(2, '0');
-  return `${d.getFullYear()}-${mes}-${dia}`;
+  return formatoFecha(d);
 }
 
 // Fecha y hora válidas y reales (rechaza cosas como 2026-02-31 o 25:70)
@@ -50,6 +55,13 @@ function aFecha(fecha, hora) {
     fechaCompleta.getMonth() === m - 1 &&
     fechaCompleta.getDate() === d;
   return coincide ? fechaCompleta : null;
+}
+
+// Un día después (para las rutas que cruzan la medianoche)
+function alDiaSiguiente(fecha) {
+  const d = new Date(fecha);
+  d.setDate(d.getDate() + 1);
+  return d;
 }
 
 function formatear(iso) {
@@ -74,6 +86,11 @@ export default function RutasTemporalesScreen() {
 
   const origenLugar = lugares.find((l) => l.id === origenId) ?? null;
   const destinoLugar = lugares.find((l) => l.id === destinoId) ?? null;
+
+  // Si la hora de fin es menor que la de inicio, la ruta termina al día siguiente
+  const inicioPrevio = aFecha(fecha, horaInicio);
+  const finPrevio = aFecha(fecha, horaFin);
+  const cruzaMedianoche = !!inicioPrevio && !!finPrevio && finPrevio < inicioPrevio;
 
   const cargar = useCallback(async () => {
     try {
@@ -131,14 +148,17 @@ export default function RutasTemporalesScreen() {
   const guardar = async () => {
     setExito('');
     const inicio = aFecha(fecha, horaInicio);
-    const fin = aFecha(fecha, horaFin);
+    let fin = aFecha(fecha, horaFin);
     if (!origenLugar || !destinoLugar) return setError('Elige el origen y el destino.');
     if (origenLugar.id === destinoLugar.id)
       return setError('El origen y el destino deben ser lugares distintos.');
     if (!nombre.trim()) return setError('Escribe un nombre para la ruta.');
     if (!inicio || !fin)
       return setError('Usa una fecha real como AAAA-MM-DD y horas de 24 h como HH:MM (00:00 a 23:59).');
-    if (fin <= inicio) return setError('La hora de fin debe ser posterior a la de inicio.');
+    if (fin.getTime() === inicio.getTime())
+      return setError('La hora de fin no puede ser igual a la de inicio.');
+    // Fin menor que inicio: la ruta termina al día siguiente (por ejemplo 23:46 a 07:00)
+    if (fin < inicio) fin = alDiaSiguiente(fin);
     if (fin <= new Date()) return setError('Ese horario ya pasó. Elige uno futuro.');
 
     setError('');
@@ -227,7 +247,7 @@ export default function RutasTemporalesScreen() {
           <CampoGlass
             style={styles.campo}
             icono="calendar-outline"
-            etiqueta="Fecha (AAAA-MM-DD)"
+            etiqueta="Fecha de inicio (AAAA-MM-DD)"
             value={fecha}
             onChangeText={setFecha}
             placeholder="2026-11-20"
@@ -272,6 +292,15 @@ export default function RutasTemporalesScreen() {
               maxLength={5}
             />
           </View>
+
+          {cruzaMedianoche ? (
+            <View style={styles.avisoCaja}>
+              <Ionicons name="moon-outline" size={18} color={colors.moradoMedio} />
+              <Text style={styles.aviso}>
+                Termina al día siguiente: {formatoFecha(alDiaSiguiente(finPrevio))} a las {horaFin}
+              </Text>
+            </View>
+          ) : null}
 
           <CampoGlass
             style={styles.campo}
@@ -363,6 +392,15 @@ const styles = StyleSheet.create({
   atajoTextoActivo: { color: colors.blanco },
   fila: { flexDirection: 'row', gap: 12, marginTop: 14 },
   mitad: { flex: 1 },
+  avisoCaja: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+    padding: 10,
+    borderRadius: 12,
+    backgroundColor: 'rgba(156,68,153,0.10)',
+  },
+  aviso: { flex: 1, marginLeft: 8, color: colors.moradoMedio, fontSize: 13, fontWeight: '600' },
   errorCaja: {
     flexDirection: 'row',
     alignItems: 'center',

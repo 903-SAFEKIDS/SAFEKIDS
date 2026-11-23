@@ -290,6 +290,19 @@ def _en_ruta_habitual(ruta: dict, latitud: float, longitud: float, local: dateti
     )
 
 
+def _desvio_autorizada(autorizada: dict, d: int, margen: float) -> dict:
+    """Se alejó de la ruta temporal autorizada: atención si es poco, alerta si es mucho.
+    La ruta va en el campo `ruta` (no en `ruta_autorizada`), porque ese campo significa
+    'va por una ruta autorizada' y la app lo muestra como seguro."""
+    if d <= margen * 2:
+        return _resultado(
+            "atencion", "Medio", "Se alejó de su ruta autorizada.", autorizada, distancia=d
+        )
+    return _resultado(
+        "alerta", "Alto", "Se desvió de su ruta autorizada.", autorizada, distancia=d
+    )
+
+
 def evaluar_ubicacion(
     latitud: float,
     longitud: float,
@@ -302,8 +315,9 @@ def evaluar_ubicacion(
     ahora = _utc(ahora) if ahora else datetime.now(timezone.utc)
     local = ahora.astimezone(ZONA)
 
-    # 1. Salida autorizada por el padre
+    # 1. Salida autorizada por el padre (ruta temporal vigente)
     autorizada = _temporal_vigente(temporales, menor, ahora)
+    desvio_autorizada = None
     if autorizada:
         tramo = _tramo_temporal(autorizada)
         if tramo is None:
@@ -311,10 +325,13 @@ def evaluar_ubicacion(
                 "seguro", "Bajo", "Hay una ruta autorizada vigente.", autorizada=autorizada
             )
         d = round(distancia_a_tramo_m(latitud, longitud, *tramo))
-        if d <= _margen_m(*tramo):
+        margen = _margen_m(*tramo)
+        if d <= margen:
             return _resultado(
                 "seguro", "Bajo", "Está en su ruta autorizada.", autorizada=autorizada, distancia=d
             )
+        # Se alejó de la ruta autorizada: se vigila contra ella (salvo que esté en su ruta habitual)
+        desvio_autorizada = _desvio_autorizada(autorizada, d, margen)
 
     # 2. Ruta habitual de este día y horario
     activas = _habituales_activas(habituales, local)
@@ -328,6 +345,8 @@ def evaluar_ubicacion(
             mejor = (r, d, margen)
 
     if mejor is None:
+        if desvio_autorizada:
+            return desvio_autorizada
         if activas:
             return _resultado(
                 "seguro", "Bajo", "No se pudo leer la ubicación de la ruta habitual de este horario."
@@ -342,6 +361,8 @@ def evaluar_ubicacion(
     d = round(d)
     if d <= margen:
         return _en_ruta_habitual(ruta, latitud, longitud, local, d)
+    if desvio_autorizada:
+        return desvio_autorizada
     if d <= margen * 2:
         return _resultado("atencion", "Medio", "Se alejó de su ruta habitual.", ruta, distancia=d)
     return _resultado(

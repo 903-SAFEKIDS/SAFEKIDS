@@ -36,6 +36,10 @@ function textoSituacion(datos, evaluacion) {
       return `va de ${datos.destino} a ${datos.origen}`;
     case 'fuera_de_ruta':
       return 'está fuera de su ruta habitual';
+    case 'en_vivo':
+      return 'está en su ubicación actual';
+    case 'fuera_de_ruta_temporal':
+      return 'está fuera de su ruta autorizada';
     default:
       return '';
   }
@@ -59,9 +63,10 @@ export default function InicioScreen({ navigation }) {
   const [datos, setDatos] = useState(null);
   const [evaluacion, setEvaluacion] = useState(null);
   const [desvio, setDesvio] = useState(false);
+  const [usarReal, setUsarReal] = useState(true);
 
-  // Ubicación en tiempo real (sigue la ruta habitual guardada)
-  useEffect(() => suscribirUbicacion(setDatos, 3000, desvio), [desvio]);
+  // Ubicación en tiempo real: la pulsera si está mandando datos; si no, la simulación
+  useEffect(() => suscribirUbicacion(setDatos, 3000, desvio, usarReal), [desvio, usarReal]);
 
   // El backend decide si hay alerta, tomando en cuenta las rutas autorizadas
   useEffect(() => {
@@ -75,7 +80,7 @@ export default function InicioScreen({ navigation }) {
     };
   }, [datos]);
 
-  // Cada posición que llega se guarda en el historial (como hará la pulsera)
+  // Cada posición que llega se guarda en el historial
   const ultimoRegistro = useRef(0);
   useEffect(() => {
     if (!datos) return;
@@ -146,7 +151,9 @@ export default function InicioScreen({ navigation }) {
         </View>
         <View style={styles.encabezadoTexto}>
           <Text style={styles.nombre}>{datos.nombre}</Text>
-          <Text style={styles.actualizado}>Actualizado {datos.actualizado}</Text>
+          <Text style={styles.actualizado}>
+            Actualizado {datos.actualizado} · {datos.fuente === 'pulsera' ? 'Pulsera en vivo' : 'Simulación'}
+          </Text>
         </View>
         <View style={[styles.chipEstado, { backgroundColor: estado.color }]}>
           <View style={styles.puntoBlanco} />
@@ -178,13 +185,19 @@ export default function InicioScreen({ navigation }) {
 
         <View style={styles.datos}>
           <Dato etiqueta={etiquetaTiempo} valor={valorTiempo} />
-          <Dato etiqueta="Batería" valor={`${datos.bateria}%`} />
+          <Dato etiqueta="Batería" valor={datos.bateria != null ? `${datos.bateria}%` : '—'} />
           <Dato etiqueta="Riesgo" valor={riesgo} color={estado.color} />
         </View>
 
         <Pressable onPress={() => setDesvio(!desvio)} style={styles.simular}>
           <Text style={styles.simularTexto}>
             {desvio ? 'Volver a la ruta habitual' : 'Simular desvío de ruta'}
+          </Text>
+        </Pressable>
+
+        <Pressable onPress={() => setUsarReal(!usarReal)} style={styles.simular}>
+          <Text style={styles.simularTexto}>
+            {usarReal ? 'Usar simulación (sin pulsera)' : 'Usar pulsera real'}
           </Text>
         </Pressable>
 
