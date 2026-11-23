@@ -46,6 +46,7 @@ const kmRecorridos = (puntos) => {
 
 const minutosATexto = (min) => {
   const m = Math.round(min);
+  if (m <= 1) return '1 min';
   const h = Math.floor(m / 60);
   const r = m % 60;
   if (h === 0) return `${r} min`;
@@ -80,6 +81,12 @@ const nombresRuta = (ruta) => {
   return { origen: 'Casa', destino: capitalizar(String(ruta.nombre ?? 'Destino').trim()) };
 };
 
+const minutosDesdeMedianoche = (horaStr) => {
+  if (!horaStr) return 8 * 60;
+  const [h = 8, m = 0] = String(horaStr).split(':').map(Number);
+  return (Number.isFinite(h) ? h : 8) * 60 + (Number.isFinite(m) ? m : 0);
+};
+
 // Muestrea el trazo de calles en n puntos repartidos en el tiempo
 const caminar = (trazo, salida, duracionMs, n = 25) =>
   Array.from({ length: n }, (_, i) => {
@@ -93,6 +100,7 @@ const caminar = (trazo, salida, duracionMs, n = 25) =>
 
 // Puntos casi quietos (con ruido GPS de ~20 m) mientras está en un lugar
 const quedarse = (p, desde, hasta, cadaMin = 15) => {
+  if (hasta.getTime() <= desde.getTime()) return [];
   const res = [];
   for (let t = desde.getTime(); t <= hasta.getTime(); t += cadaMin * 60000) {
     res.push({
@@ -104,10 +112,10 @@ const quedarse = (p, desde, hasta, cadaMin = 15) => {
   return res;
 };
 
-// Nombre del lugar conocido más cercano (a menos de 200 m)
+// Nombre del lugar conocido más cercano (a menos de 250 m)
 const nombreLugar = (p, lugares) => {
   let mejor = null;
-  let dMin = 200;
+  let dMin = 250;
   for (const l of lugares) {
     const d = distanciaMetros(p, l);
     if (d <= dMin) {
@@ -118,64 +126,98 @@ const nombreLugar = (p, lugares) => {
   return mejor ?? 'un lugar sin nombre';
 };
 
-// Convierte los puntos del día en una lista de eventos (salidas y llegadas)
+// Convierte los puntos del día en una cronología detallada de movimientos y paradas
 const armarLinea = (puntos, lugares) => {
   const eventos = [];
   const n = puntos.length;
   if (n === 0) return eventos;
 
-  const MIN_PARADA_MS = 15 * 60000;
-  const RADIO_M = 100;
-  let terminaEnParada = false;
+  const RADIO_QUIETO_M = 200;
+  const MIN_PARADA_MS = 5 * 60000;
+
+  // Clasifica cada punto como 'quieto' o 'movimiento' respecto a su ventana local
+  const esQuieto = puntos.map((p, idx) => {
+    const ref = puntos[Math.max(0, idx - 1)];
+    const sig = puntos[Math.min(n - 1, idx + 1)];
+    const dtPrev = Math.abs(new Date(p.momento) - new Date(ref.momento));
+    const dtNext = Math.abs(new Date(sig.momento) - new Date(p.momento));
+    const dPrev = distanciaMetros(p, ref);
+    const dNext = distanciaMetros(p, sig);
+    return (
+      (idx > 0 && dPrev <= RADIO_QUIETO_M && dtPrev >= MIN_PARADA_MS) ||
+      (idx < n - 1 && dNext <= RADIO_QUIETO_M && dtNext >= MIN_PARADA_MS) ||
+      (dPrev <= RADIO_QUIETO_M && dNext <= RADIO_QUIETO_M)
+    );
+  });
 
   let i = 0;
   while (i < n) {
-    let j = i;
-    while (j + 1 < n && distanciaMetros(puntos[i], puntos[j + 1]) <= RADIO_M) j++;
-    const dur = new Date(puntos[j].momento) - new Date(puntos[i].momento);
-
-    if (j > i && dur >= MIN_PARADA_MS) {
-      // Parada: estuvo quieto en un lugar al menos 15 min
+    if (esQuieto[i]) {
+      let j = i;
+      while (j + 1 < n && esQuieto[j + 1] && distanciaMetros(puntos[i], puntos[j + 1]) <= RADIO_QUIETO_M) {
+        j++;
+      }
+      const durMs = new Date(puntos[j].momento) - new Date(puntos[i].momento);
       const lugar = nombreLugar(puntos[i], lugares);
       const esUltima = j === n - 1;
+
       if (i === 0) {
-        eventos.push({ hora: puntos[i].momento, titulo: `Estaba en ${lugar}`, detalle: null });
-      } else {
+        eventos.push({
+          hora: puntos[i].momento,
+          titulo: `Estaba en ${lugar}`,
+          detalle: esUltima && durMs >= MIN_PARADA_MS
+            ? `Sigue ahí desde hace ${minutosATexto(durMs / 60000)}`
+            : durMs >= MIN_PARADA_MS
+              ? `Estuvo ${minutosATexto(durMs / 60000)}`
+              : null,
+        });
+      } else if (durMs >= MIN_PARADA_MS) {
         eventos.push({
           hora: puntos[i].momento,
           titulo: `Llegó a ${lugar}`,
           detalle: esUltima
-            ? `Sigue ahí desde hace ${minutosATexto(dur / 60000)}`
-            : `Estuvo ${minutosATexto(dur / 60000)}`,
+            ? `Sigue ahí desde hace ${minutosATexto(durMs / 60000)}`
+            : `Estuvo ${minutosATexto(durMs / 60000)}`,
         });
-      }
-      if (esUltima) {
-        terminaEnParada = true;
-      } else {
-        eventos.push({ hora: puntos[j].momento, titulo: `Salió de ${lugar}`, detalle: null });
       }
       i = j + 1;
     } else {
-      // En movimiento. Si el día empieza así, se marca la salida
-      if (i === 0) {
+      let j = i;
+      while (j + 1 < n && !esQuieto[j + 1]) {
+        j++;
+      }
+      const finTramoIdx = Math.min(n - 1, j + 1);
+      const durTramoMs = new Date(puntos[finTramoIdx].momento) - new Date(puntos[i].momento);
+      const distTramoKm =
+        Array.from({ length: finTramoIdx - i }, (_, k) =>
+          distanciaMetros(puntos[i + k], puntos[i + k + 1])
+        ).reduce((acc, val) => acc + val, 0) / 1000;
+
+      if (distTramoKm >= 0.05 || i === 0) {
+        const origenCercano = nombreLugar(puntos[i], lugares);
         eventos.push({
-          hora: puntos[0].momento,
-          titulo: `Salió de ${nombreLugar(puntos[0], lugares)}`,
-          detalle: null,
+          hora: puntos[i].momento,
+          titulo: `Salió de ${origenCercano}`,
+          detalle:
+            durTramoMs > 0
+              ? `Trayecto de ${minutosATexto(durTramoMs / 60000)} (${distTramoKm.toFixed(1)} km)`
+              : null,
         });
       }
-      i++;
+      i = j + 1;
     }
   }
 
-  // Si el día termina en movimiento, se marca la última posición
-  if (!terminaEnParada) {
+  const ultimoPunto = puntos[n - 1];
+  const ultimoEvento = eventos[eventos.length - 1];
+  if (!ultimoEvento || ultimoEvento.hora !== ultimoPunto.momento) {
     eventos.push({
-      hora: puntos[n - 1].momento,
-      titulo: 'Última posición registrada',
+      hora: ultimoPunto.momento,
+      titulo: `Última posición en ${nombreLugar(ultimoPunto, lugares)}`,
       detalle: null,
     });
   }
+
   return eventos;
 };
 
@@ -199,6 +241,9 @@ export default function HistorialScreen() {
     setCargando(true);
     setError('');
     try {
+      const listaRutas = await listarRutasHabituales();
+      setHabituales(listaRutas);
+      setSinRutas(listaRutas.length === 0);
       setPuntos(await obtenerRecorrido(MENOR, fecha.toISOString(), sumarDias(fecha, 1).toISOString()));
     } catch (e) {
       setError(e.message);
@@ -211,13 +256,6 @@ export default function HistorialScreen() {
   useEffect(() => {
     cargar();
   }, [cargar]);
-
-  // Rutas habituales: sirven para ponerle nombre a los lugares de la lista
-  useEffect(() => {
-    listarRutasHabituales()
-      .then(setHabituales)
-      .catch(() => {});
-  }, []);
 
   const lugares = useMemo(() => {
     const res = [];
@@ -232,20 +270,20 @@ export default function HistorialScreen() {
 
   const linea = useMemo(() => armarLinea(puntos, lugares), [puntos, lugares]);
 
-  // DEMO: genera varios días de recorridos siguiendo las calles de las rutas
-  // habituales. Alterna las rutas por día y respeta los días configurados.
-  // Se ejecuta sola la primera vez, si no hay recorridos recientes.
-  // Se quita cuando la pulsera mande posiciones reales.
+  // DEMO: genera varios días de recorridos incluyendo TODAS las rutas habituales
+  // que aplican en cada día, ordenadas cronológicamente y sin solaparse.
   const generarDatosDemo = async () => {
     const hoy = inicioDelDia(new Date());
 
     const lista = await listarRutasHabituales();
     if (!lista.length) {
+      setSinRutas(true);
       throw new Error('Configura una ruta habitual en Rutas para ver el historial.');
     }
+    setSinRutas(false);
     setHabituales(lista);
 
-    const trazos = new Map(); // ruta -> trazo de calles (se pide una vez por ruta)
+    const trazos = new Map();
     const obtenerTrazo = async (ruta) => {
       if (!trazos.has(ruta)) {
         const [o, d] = ruta.puntos;
@@ -259,45 +297,77 @@ export default function HistorialScreen() {
     for (let k = DIAS_DEMO - 1; k >= 0; k--) {
       const dia = sumarDias(hoy, -k);
 
-      // Solo las rutas que aplican ese día de la semana
-      const elegibles = lista.filter((r) => diasDeRuta(r).has(dia.getDay()));
+      const elegibles = lista
+        .filter(
+          (r) => Array.isArray(r.puntos) && r.puntos.length >= 2 && diasDeRuta(r).has(dia.getDay())
+        )
+        .sort(
+          (a, b) => minutosDesdeMedianoche(a.hora_inicio) - minutosDesdeMedianoche(b.hora_inicio)
+        );
+
       if (!elegibles.length) continue;
 
-      // Alterna entre las rutas elegibles según el día
-      const numDia = Math.floor((dia.getTime() - dia.getTimezoneOffset() * 60000) / 86400000);
-      const ruta = elegibles[numDia % elegibles.length];
-
-      const [o, d] = ruta.puntos;
-      const ida = await obtenerTrazo(ruta);
-      const vuelta = [...ida].reverse();
-
-      const [h1, m1] = ruta.hora_inicio.split(':').map(Number);
-      const [h2, m2] = ruta.hora_fin.split(':').map(Number);
-      const duracion = Math.max(h2 * 60 + m2 - (h1 * 60 + m1), 10) * 60000;
-
-      const en = (h, m) => {
+      const en = (minutos) => {
         const x = new Date(dia);
-        x.setHours(h, m, 0, 0);
+        x.setHours(0, Math.max(0, minutos), 0, 0);
         return x;
       };
-      const salida = en(h1, m1);
-      const llegada = new Date(salida.getTime() + duracion);
-      // Se queda en el destino hasta las 14:00 (o al menos 3 h)
-      const salidaDestino = new Date(Math.max(en(14, 0).getTime(), llegada.getTime() + 3 * 3600000));
-      const regreso = new Date(salidaDestino.getTime() + duracion);
-      const finDia = new Date(Math.max(en(20, 0).getTime(), regreso.getTime() + 3600000));
 
-      nuevos.push(
-        ...caminar(ida, salida, duracion), // origen -> destino
-        ...quedarse(d, llegada, salidaDestino), // en el destino
-        ...caminar(vuelta, salidaDestino, duracion), // destino -> origen
-        ...quedarse(o, regreso, finDia, 30) // en el origen
-      );
+      let cursorMin = 0;
+
+      for (let idx = 0; idx < elegibles.length; idx++) {
+        const ruta = elegibles[idx];
+        const [o, d] = ruta.puntos;
+        const ida = await obtenerTrazo(ruta);
+        const vuelta = [...ida].reverse();
+
+        const minInicioRaw = minutosDesdeMedianoche(ruta.hora_inicio);
+        const minFinRaw = minutosDesdeMedianoche(ruta.hora_fin);
+        const duracionMin = Math.max(minFinRaw - minInicioRaw, 15);
+        const duracionMs = duracionMin * 60000;
+
+        const salidaMin = Math.max(minInicioRaw, cursorMin);
+        const salida = en(salidaMin);
+        const llegada = new Date(salida.getTime() + duracionMs);
+
+        const siguiente = elegibles[idx + 1];
+        const siguienteInicioMin = siguiente ? minutosDesdeMedianoche(siguiente.hora_inicio) : null;
+
+        let estanciaDestinoMin = 60;
+        if (siguienteInicioMin !== null) {
+          const maxDisponibleMin = siguienteInicioMin - (salidaMin + duracionMin * 2 + 15);
+          if (maxDisponibleMin < 15) {
+            nuevos.push(...caminar(ida, salida, duracionMs));
+            cursorMin = salidaMin + duracionMin;
+            continue;
+          }
+          estanciaDestinoMin = Math.max(15, Math.min(90, maxDisponibleMin));
+        }
+
+        const salidaDestino = new Date(llegada.getTime() + estanciaDestinoMin * 60000);
+        const regreso = new Date(salidaDestino.getTime() + duracionMs);
+
+        const finEstanciaOrigen =
+          siguienteInicioMin !== null
+            ? en(Math.max(salidaMin + duracionMin * 2 + estanciaDestinoMin, siguienteInicioMin - 5))
+            : new Date(Math.max(regreso.getTime() + 30 * 60000, en(20 * 60).getTime()));
+
+        nuevos.push(
+          ...caminar(ida, salida, duracionMs),
+          ...quedarse(d, llegada, salidaDestino),
+          ...caminar(vuelta, salidaDestino, duracionMs),
+          ...quedarse(o, regreso, finEstanciaOrigen, 30)
+        );
+
+        cursorMin = Math.ceil((finEstanciaOrigen.getTime() - dia.getTime()) / 60000) + 10;
+      }
     }
 
-    // No inventar puntos en el futuro (si el día es hoy)
     const ahora = Date.now();
-    const validos = nuevos.filter((p) => new Date(p.momento).getTime() <= ahora);
+    const validos = nuevos
+      .filter((p) => new Date(p.momento).getTime() <= ahora)
+      .sort((a, b) => new Date(a.momento) - new Date(b.momento));
+
     if (!validos.length) {
       throw new Error('Ninguna ruta habitual aplica a los últimos días. Revisa los días de la ruta.');
     }
@@ -308,13 +378,28 @@ export default function HistorialScreen() {
       sumarDias(hoy, 1).toISOString()
     );
 
-    // Se envían en lotes de 100 para no mandar una petición enorme
     for (let i = 0; i < validos.length; i += 100) {
       await guardarPuntosRecorrido(MENOR, validos.slice(i, i + 100));
     }
 
-    // Último día que sí tiene recorrido
     return inicioDelDia(new Date(validos[validos.length - 1].momento));
+  };
+
+  const regenerarTodo = async () => {
+    setError('');
+    setGenerando(true);
+    try {
+      const ultimoDia = await generarDatosDemo();
+      if (ultimoDia.getTime() !== fecha.getTime()) {
+        setFecha(ultimoDia);
+      } else {
+        await cargar();
+      }
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setGenerando(false);
+    }
   };
 
   // Al abrir la pantalla: si no hay recorridos recientes, genera los de prueba
@@ -333,7 +418,6 @@ export default function HistorialScreen() {
         );
         if (recientes.length > 0) return;
 
-        // Sin rutas habituales no se genera nada: se avisa
         const rutasGuardadas = await listarRutasHabituales();
         if (!rutasGuardadas.length) {
           setSinRutas(true);
@@ -343,7 +427,7 @@ export default function HistorialScreen() {
         setGenerando(true);
         const ultimoDia = await generarDatosDemo();
         if (ultimoDia.getTime() !== fecha.getTime()) {
-          setFecha(ultimoDia); // salta al último día con recorrido y se recarga solo
+          setFecha(ultimoDia);
         } else {
           await cargar();
         }
@@ -377,8 +461,24 @@ export default function HistorialScreen() {
       showsVerticalScrollIndicator={false}
     >
       <View style={styles.columna}>
-        <Text style={styles.titulo}>Historial de rutas</Text>
-        <Text style={styles.subtitulo}>Revisa el recorrido de Pablo en días anteriores.</Text>
+        <View style={styles.encabezado}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.titulo}>Historial de rutas</Text>
+            <Text style={styles.subtitulo}>Revisa el recorrido de Pablo en días anteriores.</Text>
+          </View>
+          <Pressable
+            onPress={regenerarTodo}
+            disabled={generando || cargando}
+            style={({ pressed }) => [
+              styles.botonActualizar,
+              (generando || cargando) && { opacity: 0.5 },
+              pressed && { opacity: 0.8 },
+            ]}
+          >
+            <Ionicons name="refresh" size={16} color={colors.moradoMedio} />
+            <Text style={styles.botonActualizarTexto}>Actualizar días</Text>
+          </Pressable>
+        </View>
 
         <GlassCard radius={28} contentStyle={styles.tarjeta}>
           <View style={styles.selectorFecha}>
@@ -458,7 +558,6 @@ export default function HistorialScreen() {
               <Text style={styles.error}>{error}</Text>
             </View>
           ) : null}
-
         </GlassCard>
       </View>
     </ScrollView>
@@ -468,8 +567,25 @@ export default function HistorialScreen() {
 const styles = StyleSheet.create({
   contenido: { paddingHorizontal: 16 },
   columna: { width: '100%', maxWidth: 760, alignSelf: 'center' },
+  encabezado: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 16,
+  },
   titulo: { fontSize: 24, fontWeight: '800', color: colors.texto },
-  subtitulo: { marginTop: 4, marginBottom: 16, fontSize: 14, color: colors.textoSuave },
+  subtitulo: { marginTop: 4, fontSize: 14, color: colors.textoSuave },
+  botonActualizar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 14,
+    backgroundColor: 'rgba(156,68,153,0.12)',
+  },
+  botonActualizarTexto: { fontSize: 13, fontWeight: '700', color: colors.moradoMedio },
   tarjeta: { padding: 18 },
   selectorFecha: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   flecha: { padding: 8 },
